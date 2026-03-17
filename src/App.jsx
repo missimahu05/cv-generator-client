@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { PDFDownloadLink } from '@react-pdf/renderer';
-import CVPDF from './components/CVPDF';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import {
   DndContext,
+  closestCenter,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -13,6 +14,7 @@ import {
   arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -49,16 +51,27 @@ import {
   Briefcase as BriefcaseIcon,
   FileText,
   Minus,
-  Star,
-  Layout,
-  Crosshair
+  Star
 } from 'lucide-react';
-
-// Importer les services
-import { enhanceCVContent } from './services/aiService';
 
 // Importer les composants
 import DraggableItem from './components/DraggableItem';
+
+const hexToRGBA = (hex, opacity) => {
+  if (!hex) return `rgba(37, 99, 235, ${opacity})`;
+  let r = 0, g = 0, b = 0;
+  if (hex.length === 4) {
+    r = parseInt(hex[1] + hex[1], 16);
+    g = parseInt(hex[2] + hex[2], 16);
+    b = parseInt(hex[3] + hex[3], 16);
+  } else {
+    r = parseInt(hex.substring(1, 3), 16);
+    g = parseInt(hex.substring(3, 5), 16);
+    b = parseInt(hex.substring(5, 7), 16);
+  }
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+};
+
 import ExperienceFormValidated from './components/ExperienceFormValidated';
 import FormationForm from './components/forms/FormationForm';
 import LanguesForm from './components/forms/LanguesForm';
@@ -69,6 +82,8 @@ import PWAInstallPrompt from './components/PWAInstallPrompt';
 import UpdateNotification from './components/UpdateNotification';
 import ATSOptimizer from './components/ATSOptimizer';
 import SkillSuggestions from './components/SkillSuggestions';
+import LoadingScreen from './components/LoadingScreen';
+import { Layout } from 'lucide-react';
 
 function App() {
   // Données par défaut avec TON profil
@@ -213,32 +228,25 @@ function App() {
   const [centreInteretEnEdition, setCentreInteretEnEdition] = useState(null);
   const [certificationEnEdition, setCertificationEnEdition] = useState(null);
   const [projetEnEdition, setProjetEnEdition] = useState(null);
-  const [statutSauvegarde, setStatutSauvegarde] = useState('Sauvegardé');
+  const [statutSauvegarde, setStatutSauvegarde] = useState('Tout est sauvegardé');
+  const [erreurImport, setErreurImport] = useState('');
+  const [estEnLigne, setEstEnLigne] = useState(navigator.onLine);
   const [estInstalle, setEstInstalle] = useState(false);
-  const [ongletActif, setOngletActif] = useState('edition'); // 'edition' ou 'apercu'
-  const [previewScale, setPreviewScale] = useState(1);
-  const [estEnLigne, setEstEnLigne] = useState(true);
+  const [chargement, setChargement] = useState(true);
+  const [enTrainDeGenererPDF, setEnTrainDeGenererPDF] = useState(false);
 
+  const cvRef = useRef(null);
+
+  // Effet pour le preloader
   useEffect(() => {
-    const updateScale = () => {
-      if (typeof window !== 'undefined') {
-        const containerWidth = window.innerWidth;
-        if (containerWidth < 1024) {
-          // Sur mobile, on adapte pour que le CV (793px de large environ pour A4) tienne dans l'écran
-          const scale = (containerWidth - 64) / 793;
-          setPreviewScale(Math.min(scale, 1));
-        } else {
-          setPreviewScale(1);
-        }
-      }
-    };
-    updateScale();
-    window.addEventListener('resize', updateScale);
-    return () => window.removeEventListener('resize', updateScale);
+    const timer = setTimeout(() => {
+      setChargement(false);
+    }, 1200); // Un peu plus d'une seconde pour un effet premium
+    return () => clearTimeout(timer);
   }, []);
 
   // Capteurs pour le drag & drop
-  useSensors(
+  const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 },
     }),
@@ -257,10 +265,12 @@ function App() {
   // Sauvegarde automatique
   useEffect(() => {
     localStorage.setItem('cvData', JSON.stringify(cvData));
+    setStatutSauvegarde('Sauvegardé à ' + new Date().toLocaleTimeString());
 
     const timer = setTimeout(() => {
       setStatutSauvegarde('Tout est sauvegardé');
     }, 2000);
+
     return () => clearTimeout(timer);
   }, [cvData]);
 
@@ -318,6 +328,64 @@ function App() {
       ...prev,
       personnel: { ...prev.personnel, [champ]: valeur }
     }));
+  };
+
+  const exporterPDF = async () => {
+    if (!cvRef.current) return;
+
+    setEnTrainDeGenererPDF(true);
+    // Petit délai pour stabiliser le rendu
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    try {
+      const element = cvRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 3, // Excellent compromis poids/qualité
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        imageTimeout: 15000,
+        removeContainer: true,
+        // Forcer le rendu webkit pour plus de précision sur les arrondis
+        onclone: (clonedDoc) => {
+          const el = clonedDoc.getElementById('cv-preview-export');
+          if (el) {
+            el.style.width = '794px'; // A4 width
+            el.style.height = 'auto';
+            el.style.transform = 'none';
+          }
+        }
+      });
+
+      const imgData = canvas.toDataURL('image/png', 1.0);
+      const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pdfWidth = 210;
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
+      pdf.save(`CV-${cvData.personnel.nomComplet?.replace(/\s+/g, '-') || 'sans-nom'}.pdf`);
+    } catch (error) {
+      console.error('Erreur lors de la génération du PDF:', error);
+    } finally {
+      setEnTrainDeGenererPDF(false);
+    }
+  };
+
+  const handlePhotoChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        handleChangementPersonnel('photo', reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // Handlers pour templates et couleurs
@@ -398,7 +466,14 @@ function App() {
     setLangueEnEdition(null);
   };
 
-  // Langues
+  const supprimerLangue = (id) => {
+    if (window.confirm('Supprimer cette langue ?')) {
+      setCvData(prev => ({
+        ...prev,
+        langues: prev.langues.filter(l => l.id !== id)
+      }));
+    }
+  };
 
   // CRUD Centres d'intérêt
   const sauvegarderCentreInteret = (centre) => {
@@ -415,7 +490,14 @@ function App() {
     setCentreInteretEnEdition(null);
   };
 
-  // Centres d'intérêt
+  const supprimerCentreInteret = (id) => {
+    if (window.confirm('Supprimer ce centre d\'intérêt ?')) {
+      setCvData(prev => ({
+        ...prev,
+        centresInteret: prev.centresInteret.filter(c => c.id !== id)
+      }));
+    }
+  };
 
   // CRUD Certifications
   const sauvegarderCertification = (certification) => {
@@ -432,7 +514,14 @@ function App() {
     setCertificationEnEdition(null);
   };
 
-  // Certifications
+  const supprimerCertification = (id) => {
+    if (window.confirm('Supprimer cette certification ?')) {
+      setCvData(prev => ({
+        ...prev,
+        certifications: prev.certifications.filter(c => c.id !== id)
+      }));
+    }
+  };
 
   // CRUD Projets
   const sauvegarderProjet = (projet) => {
@@ -449,23 +538,100 @@ function App() {
     setProjetEnEdition(null);
   };
 
-  // Projets
-
-  // Drag & Drop Handlers
-  // Handlers Drag & Drop (Non utilisés pour l'instant)
-
-  // Compétences
-  const ajouterCompetence = (competenceSpecifique) => {
-    const competenceAAjouter = competenceSpecifique || nouvelleCompetence;
-    if (!competenceAAjouter || competenceAAjouter.trim() === "") return;
-    setCvData(prev => ({
-      ...prev,
-      competences: [...prev.competences, competenceAAjouter.trim()]
-    }));
-    if (!competenceSpecifique) setNouvelleCompetence("");
+  const supprimerProjet = (id) => {
+    if (window.confirm('Supprimer ce projet ?')) {
+      setCvData(prev => ({
+        ...prev,
+        projets: prev.projets.filter(p => p.id !== id)
+      }));
+    }
   };
 
-  // Suggestions
+  // Drag & Drop Handlers
+  const handleDragEndExperiences = (event) => {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      setCvData(prev => {
+        const oldIndex = prev.experiences.findIndex(item => item.id === active.id);
+        const newIndex = prev.experiences.findIndex(item => item.id === over.id);
+        return { ...prev, experiences: arrayMove(prev.experiences, oldIndex, newIndex) };
+      });
+    }
+  };
+
+  const handleDragEndFormations = (event) => {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      setCvData(prev => {
+        const oldIndex = prev.formations.findIndex(item => item.id === active.id);
+        const newIndex = prev.formations.findIndex(item => item.id === over.id);
+        return { ...prev, formations: arrayMove(prev.formations, oldIndex, newIndex) };
+      });
+    }
+  };
+
+  const handleDragEndLangues = (event) => {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      setCvData(prev => {
+        const oldIndex = prev.langues.findIndex(item => item.id === active.id);
+        const newIndex = prev.langues.findIndex(item => item.id === over.id);
+        return { ...prev, langues: arrayMove(prev.langues, oldIndex, newIndex) };
+      });
+    }
+  };
+
+  const handleDragEndCentresInteret = (event) => {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      setCvData(prev => {
+        const oldIndex = prev.centresInteret.findIndex(item => item.id === active.id);
+        const newIndex = prev.centresInteret.findIndex(item => item.id === over.id);
+        return { ...prev, centresInteret: arrayMove(prev.centresInteret, oldIndex, newIndex) };
+      });
+    }
+  };
+
+  const handleDragEndCertifications = (event) => {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      setCvData(prev => {
+        const oldIndex = prev.certifications.findIndex(item => item.id === active.id);
+        const newIndex = prev.certifications.findIndex(item => item.id === over.id);
+        return { ...prev, certifications: arrayMove(prev.certifications, oldIndex, newIndex) };
+      });
+    }
+  };
+
+  const handleDragEndProjets = (event) => {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      setCvData(prev => {
+        const oldIndex = prev.projets.findIndex(item => item.id === active.id);
+        const newIndex = prev.projets.findIndex(item => item.id === over.id);
+        return { ...prev, projets: arrayMove(prev.projets, oldIndex, newIndex) };
+      });
+    }
+  };
+
+  // Compétences
+  const ajouterCompetence = () => {
+    if (nouvelleCompetence.trim() === "") return;
+    setCvData(prev => ({
+      ...prev,
+      competences: [...prev.competences, nouvelleCompetence.trim()]
+    }));
+    setNouvelleCompetence("");
+  };
+
+  const ajouterCompetenceDepuisSuggestion = (competence) => {
+    if (!cvData.competences.includes(competence)) {
+      setCvData(prev => ({
+        ...prev,
+        competences: [...prev.competences, competence]
+      }));
+    }
+  };
 
   const supprimerCompetence = (indexASupprimer) => {
     if (window.confirm('Supprimer cette compétence ?')) {
@@ -476,7 +642,12 @@ function App() {
     }
   };
 
-  // Touche entrée
+  const handleToucheEntree = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      ajouterCompetence();
+    }
+  };
 
   // Réinitialisation
   const reinitialiserFormulaire = () => {
@@ -489,15 +660,30 @@ function App() {
   const exporterJSON = () => {
     const donneesStr = JSON.stringify(cvData, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(donneesStr);
-    const nomFichierExport = `cv - sauvegarde - ${new Date().toISOString().slice(0, 10)}.json`;
+    const nomFichierExport = `cv-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`;
     const elementLien = document.createElement('a');
     elementLien.setAttribute('href', dataUri);
     elementLien.setAttribute('download', nomFichierExport);
     elementLien.click();
   };
 
-  const importerJSON = () => {
-    // Non utilisé
+  const importerJSON = (event) => {
+    const fichier = event.target.files[0];
+    if (!fichier) return;
+
+    const lecteur = new FileReader();
+    lecteur.onload = (e) => {
+      try {
+        const donneesImportees = JSON.parse(e.target.result);
+        if (!donneesImportees.personnel) throw new Error('Format de fichier invalide');
+        setCvData(donneesImportees);
+        setErreurImport('');
+        event.target.value = '';
+      } catch (error) {
+        setErreurImport('Fichier JSON invalide');
+      }
+    };
+    lecteur.readAsText(fichier);
   };
 
   // Styles pour la prévisualisation avec tous les templates
@@ -514,8 +700,8 @@ function App() {
           section: "mt-6",
           grid: "grid grid-cols-1 gap-4",
           competences: "flex flex-wrap gap-2",
-          competence: "px-3 py-1 bg-gray-100 rounded-full text-xs",
-          contact: "grid grid-cols-2 md:grid-cols-3 gap-2 text-[10px] mt-4",
+          competence: "px-3 py-1 bg-gray-100 rounded-full text-sm",
+          contact: "flex justify-center gap-4 text-sm mt-4",
         };
 
       case 'moderne':
@@ -528,7 +714,7 @@ function App() {
           grid: "grid grid-cols-1 md:grid-cols-2 gap-6",
           competences: "flex flex-wrap gap-2",
           competence: "px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm",
-          contact: "flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs mt-4",
+          contact: "flex justify-center gap-4 text-sm mt-4",
         };
 
       case 'minimal':
@@ -541,71 +727,21 @@ function App() {
           grid: "grid grid-cols-1 gap-4",
           competences: "flex flex-wrap gap-2",
           competence: "px-3 py-1 bg-gray-50 text-gray-600 rounded text-sm",
-          contact: "flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-gray-400 mt-4",
+          contact: "flex justify-center gap-6 text-sm text-gray-400 mt-4",
         };
 
       case 'developpeur':
         return {
-          conteneur: "border-0 bg-gradient-to-br from-gray-900 via-gray-800 to-black p-8 text-white font-mono",
-          nom: "text-3xl font-bold text-green-400 text-center tracking-tighter",
-          titre: "text-green-500/80 text-center mt-2 uppercase tracking-widest text-xs",
-          sousTitre: "text-lg font-bold text-green-400 border-b-2 border-green-400/20 pb-2 mb-6 flex items-center gap-2 before:content-['>']",
-          section: "mt-8",
+          conteneur: "border-0 bg-gradient-to-br from-gray-900 to-gray-800 p-8 text-white",
+          nom: "text-3xl font-mono font-bold text-green-400 text-center",
+          titre: "font-mono text-gray-300 text-center mt-2",
+          sousTitre: "text-lg font-mono text-green-400 border-b border-green-400/30 pb-2 mb-4",
+          section: "mt-6",
           grid: "grid grid-cols-1 md:grid-cols-2 gap-6",
           competences: "flex flex-wrap gap-2",
-          competence: "px-3 py-1 bg-green-400/10 text-green-400 border border-green-400/30 rounded text-xs",
-          contact: "grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs text-green-500/60 mt-6",
-          code: "bg-black/40 p-4 rounded border border-green-400/10 hover:border-green-400/30 transition-colors",
-          textMain: "text-gray-300",
-          textMuted: "text-gray-500",
-        };
-
-      case 'neobrutalisme':
-        return {
-          conteneur: "border-4 border-black p-8 bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] font-bold",
-          nom: "text-4xl uppercase italic mb-2",
-          titre: "text-xl uppercase bg-yellow-300 inline-block px-2 py-1 border-2 border-black mb-4",
-          sousTitre: "text-2xl uppercase border-b-4 border-black pb-1 mb-6 bg-pink-300 px-2",
-          section: "mt-10",
-          grid: "grid grid-cols-1 gap-8",
-          competences: "flex flex-wrap gap-3",
-          competence: "px-4 py-2 bg-cyan-300 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-sm",
-          contact: "flex flex-wrap gap-6 text-sm mb-6",
-          code: "border-2 border-black p-4 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]",
-          textMain: "text-black",
-          textMuted: "text-black/70",
-        };
-
-      case 'glassmorphism':
-        return {
-          conteneur: "border border-white/20 p-10 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-3xl shadow-2xl relative overflow-hidden",
-          nom: "text-5xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600",
-          titre: "text-lg font-medium text-gray-700/80 mb-6",
-          sousTitre: "text-xl font-bold text-gray-800 flex items-center gap-3 mb-6",
-          section: "mt-12 p-8 bg-white/40 rounded-2xl border border-white/50 shadow-sm",
-          grid: "grid grid-cols-1 md:grid-cols-2 gap-8",
-          competences: "flex flex-wrap gap-3",
-          competence: "px-4 py-2 bg-white/60 backdrop-blur-sm border border-white text-blue-700 rounded-xl text-sm font-semibold shadow-sm",
-          contact: "flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-600/80 mb-8",
-          code: "bg-white/30 p-5 rounded-xl border border-white/40",
-          textMain: "text-gray-800",
-          textMuted: "text-gray-500",
-        };
-
-      case 'luxury':
-        return {
-          conteneur: "border-[12px] border-double border-gray-100 p-12 bg-white font-serif",
-          nom: "text-4xl font-light tracking-[0.2em] text-center uppercase mb-1",
-          titre: "text-center tracking-[0.5em] text-gray-400 text-xs uppercase mb-8",
-          sousTitre: "text-center text-lg italic border-y border-gray-100 py-2 mb-10 tracking-widest",
-          section: "mt-16",
-          grid: "grid grid-cols-1 gap-12",
-          competences: "flex justify-center flex-wrap gap-6",
-          competence: "text-sm tracking-widest uppercase text-gray-600",
-          contact: "flex justify-center flex-wrap gap-x-10 gap-y-4 text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-12 border-b pb-8",
-          code: "p-0",
-          textMain: "text-gray-800 leading-relaxed",
-          textMuted: "text-gray-500 italic",
+          competence: "px-3 py-1 bg-gray-700 text-green-400 rounded-md text-sm font-mono",
+          contact: "flex justify-center gap-4 text-sm text-gray-300 mt-4 font-mono",
+          code: "bg-gray-800 p-4 rounded-lg border border-green-400/30",
         };
 
       case 'creatif':
@@ -618,7 +754,7 @@ function App() {
           grid: "grid grid-cols-1 md:grid-cols-2 gap-6",
           competences: "flex flex-wrap gap-2",
           competence: "px-4 py-2 bg-gradient-to-r from-purple-100 to-pink-100 text-purple-700 rounded-lg text-sm font-medium shadow-sm",
-          contact: "flex justify-center flex-wrap gap-x-6 gap-y-3 text-sm text-gray-600 mt-4 bg-white/50 p-4 rounded-full",
+          contact: "flex justify-center gap-6 text-sm text-gray-600 mt-4 bg-white/50 p-4 rounded-full",
           decoration: "absolute top-0 right-0 w-32 h-32 bg-purple-200 rounded-full -mr-16 -mt-16 opacity-50",
         };
 
@@ -632,10 +768,49 @@ function App() {
           grid: "grid grid-cols-1 md:grid-cols-2 gap-4",
           competences: "flex flex-wrap gap-2",
           competence: "px-3 py-1 bg-gray-50 text-gray-700 border border-gray-200 rounded text-sm",
-          contact: "flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-600 mt-4",
+          contact: "flex flex-wrap gap-4 text-sm text-gray-600 mt-4",
           deuxColonnes: "grid grid-cols-1 md:grid-cols-3 gap-6",
           colonneGauche: "md:col-span-1",
           colonneDroite: "md:col-span-2",
+        };
+
+      case 'sidebar_left':
+        return {
+          conteneur: "border-0 shadow-xl bg-white flex min-h-[800px] text-gray-800",
+          sidebar: "w-1/3 bg-gray-900 text-white p-6 flex flex-col items-center",
+          main: "w-2/3 p-8",
+          nom: "text-2xl font-bold text-center mb-1 text-white",
+          titre: "text-sm text-gray-400 text-center uppercase tracking-widest mb-6",
+          sousTitre: "text-sm font-bold uppercase tracking-widest border-b border-gray-700 pb-2 mb-4 mt-6",
+          mainSousTitre: "text-lg font-bold uppercase tracking-wider border-b-2 border-gray-100 pb-2 mb-4 mt-6",
+          contact: "flex flex-col gap-3 text-xs text-gray-300 w-full mt-4",
+          competence: "px-2 py-1 bg-gray-800 text-gray-300 rounded text-[10px] mb-1 mr-1 inline-block",
+        };
+
+      case 'sidebar_right':
+        return {
+          conteneur: "border-0 shadow-xl bg-white flex min-h-[800px] text-gray-800",
+          main: "w-2/3 p-8",
+          sidebar: "w-1/3 bg-gray-50 border-l border-gray-100 p-6 flex flex-col",
+          nom: "text-3xl font-black text-gray-900",
+          titre: "text-lg font-medium text-gray-500 mb-6",
+          sousTitre: "text-sm font-bold uppercase tracking-widest border-b border-gray-200 pb-2 mb-4 mt-6",
+          mainSousTitre: "text-lg font-bold text-gray-900 border-l-4 pl-3 mb-4 mt-6",
+          contact: "flex flex-col gap-3 text-xs text-gray-600 w-full",
+          competence: "px-3 py-1 bg-white border border-gray-200 text-gray-700 rounded-full text-[10px] inline-block mb-1 mr-1",
+        };
+
+      case 'fancy_header':
+        return {
+          conteneur: "border-0 shadow-2xl bg-white overflow-hidden text-gray-800",
+          header: "p-8 text-white relative",
+          body: "p-8",
+          nom: "text-4xl font-extrabold tracking-tight",
+          titre: "text-xl font-light opacity-90 mt-1",
+          sousTitre: "text-lg font-bold text-gray-900 flex items-center gap-2 mb-4 mt-6 before:content-[''] before:w-8 before:h-1",
+          contact: "flex flex-wrap gap-4 text-xs mt-6 pt-6 border-t border-white/20",
+          competence: "px-3 py-1 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium",
+          grid: "grid grid-cols-1 md:grid-cols-2 gap-8",
         };
 
       default:
@@ -644,11 +819,12 @@ function App() {
           nom: "text-xl font-bold",
           titre: "text-gray-600",
           sousTitre: "text-md font-semibold border-b border-gray-200 pb-2 mb-4",
+          mainSousTitre: "text-md font-semibold border-b border-gray-200 pb-2 mb-4",
           section: "mt-4",
           grid: "grid grid-cols-1 gap-4",
           competences: "flex flex-wrap gap-2",
           competence: "px-2 py-1 bg-gray-200 rounded-md text-sm",
-          contact: "flex justify-center flex-wrap gap-x-4 gap-y-2 text-sm mt-4",
+          contact: "flex justify-center gap-4 text-sm mt-4",
         };
     }
   };
@@ -757,6 +933,239 @@ function App() {
     );
   }
 
+  // --- Composants de Rendu de la Prévisualisation ---
+  const ExperienceItem = ({ exp }) => (
+    <div key={exp.id} className="mb-4">
+      <div className="flex justify-between items-start">
+        <p className="font-semibold">{exp.poste}</p>
+        <p className="text-xs text-gray-400">{exp.dateDebut} - {exp.dateFin}</p>
+      </div>
+      <p className="text-sm font-medium opacity-90">{exp.entreprise}</p>
+      {exp.description && <p className="text-xs mt-1 whitespace-pre-line leading-relaxed opacity-80">{exp.description}</p>}
+    </div>
+  );
+
+  const TextRenderer = ({ data, styles, section }) => {
+    const isSidebar = section === 'sidebar';
+    const sTitleStyle = isSidebar ? {} : { color: data.parametres.couleurPrincipale };
+    const sTitleClass = isSidebar ? styles.sousTitre : styles.mainSousTitre;
+
+    const renderContact = () => (
+      <div className={styles.contact}>
+        {data.personnel.email && <span className="flex items-center gap-2"><Mail size={12} /> {data.personnel.email}</span>}
+        {data.personnel.telephone && <span className="flex items-center gap-2"><Phone size={12} /> {data.personnel.telephone}</span>}
+        {data.personnel.adresse && <span className="flex items-center gap-2"><MapPin size={12} /> {data.personnel.adresse}</span>}
+        {data.personnel.linkedin && <span className="flex items-center gap-2"><Linkedin size={12} /> {data.personnel.linkedin}</span>}
+        {data.personnel.github && <span className="flex items-center gap-2"><Github size={12} /> {data.personnel.github}</span>}
+        {data.personnel.siteWeb && <span className="flex items-center gap-2"><Globe size={12} /> {data.personnel.siteWeb}</span>}
+      </div>
+    );
+
+    const renderSkills = () => data.competences.length > 0 && (
+      <div className="mt-6 w-full overflow-hidden">
+        <h4 className={sTitleClass} style={sTitleStyle}>Compétences</h4>
+        <div className="flex flex-wrap gap-2 py-1">
+          {data.competences.map((s, i) => (
+            <span
+              key={i}
+              className={`${styles.competence} inline-block whitespace-nowrap`}
+              style={{
+                ...(!isSidebar ? {
+                  backgroundColor: hexToRGBA(data.parametres.couleurPrincipale, 0.1),
+                  color: data.parametres.couleurPrincipale
+                } : {}),
+                padding: '4px 12px',
+                borderRadius: '9999px',
+                margin: '2px',
+                display: 'inline-block',
+                border: `1px solid ${hexToRGBA(data.parametres.couleurPrincipale, 0.05)}`
+              }}
+            >
+              {s}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+
+    const renderEducation = () => data.formations.length > 0 && (
+      <div className="mt-6 w-full">
+        <h4 className={sTitleClass} style={sTitleStyle}>Formations</h4>
+        {data.formations.map(f => (
+          <div key={f.id} className="mb-3">
+            <p className="font-semibold text-sm">{f.diplome}</p>
+            <p className="text-xs opacity-70">{f.ecole}</p>
+            <p className="text-[10px] opacity-50">{f.dateDebut} - {f.dateFin}</p>
+          </div>
+        ))}
+      </div>
+    );
+
+    if (section === 'sidebar') {
+      return (
+        <div className="w-full">
+          <h2 className={styles.nom}>{data.personnel.nomComplet}</h2>
+          <p className={styles.titre}>{data.personnel.titrePoste}</p>
+          {renderContact()}
+          {renderSkills()}
+          {renderEducation()}
+          {data.langues.length > 0 && (
+            <div className="mt-6">
+              <h4 className={sTitleClass}>Langues</h4>
+              {data.langues.map(l => (
+                <div key={l.id} className="flex justify-between text-xs mb-1">
+                  <span>{l.nom}</span>
+                  <span className="opacity-50 italic">{l.niveau}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="w-full">
+        {(section === 'header' || section === 'full') && (
+          <div className="mb-8">
+            <h1 className={styles.nom}>{data.personnel.nomComplet}</h1>
+            <p className={styles.titre}>{data.personnel.titrePoste}</p>
+            {section === 'header' && renderContact()}
+          </div>
+        )}
+
+        {data.personnel.resume && (
+          <div className="mb-8">
+            <h4 className={styles.mainSousTitre} style={{ color: data.parametres.couleurPrincipale }}>Profil</h4>
+            <p className="text-sm leading-relaxed text-gray-700 italic border-l-2 pl-4 py-1" style={{ borderColor: data.parametres.couleurPrincipale }}>
+              "{data.personnel.resume}"
+            </p>
+          </div>
+        )}
+
+        {data.experiences.length > 0 && (
+          <div className="mb-8">
+            <h4 className={styles.mainSousTitre} style={{ color: data.parametres.couleurPrincipale }}>Expériences Professionnelles</h4>
+            {data.experiences.map(exp => <ExperienceItem key={exp.id} exp={exp} />)}
+          </div>
+        )}
+
+        {section === 'full' && (
+          <>
+            {renderEducation()}
+            {renderSkills()}
+          </>
+        )}
+
+        {data.projets.length > 0 && (
+          <div className="mb-8">
+            <h4 className={styles.mainSousTitre} style={{ color: data.parametres.couleurPrincipale }}>Projets</h4>
+            <div className={styles.grid || 'grid grid-cols-1 gap-4'}>
+              {data.projets.map(p => (
+                <div key={p.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                  <p className="text-sm font-bold">{p.nom}</p>
+                  <p className="text-xs text-gray-600 mt-1">{p.description}</p>
+                  {p.lien && <a href={p.lien} className="text-[10px] text-blue-600 mt-2 block hover:underline">{p.lien}</a>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const DefaultRenderer = ({ data, styles }) => {
+    return (
+      <div className="w-full">
+        <div className="flex gap-6 mb-8">
+          <div className="flex-shrink-0">
+            <div className="w-28 h-28 rounded-2xl border-4 overflow-hidden shadow-sm bg-gray-50 flex items-center justify-center"
+              style={{ borderColor: data.parametres.couleurPrincipale }}>
+              {data.personnel.photo ? <img src={data.personnel.photo} className="w-full h-full object-cover" /> : <User size={50} className="text-gray-300" />}
+            </div>
+          </div>
+          <div className="flex-1">
+            <h1 className={styles.nom} style={{ color: data.parametres.couleurPrincipale }}>{data.personnel.nomComplet}</h1>
+            <p className={styles.titre}>{data.personnel.titrePoste}</p>
+            <div className="flex flex-wrap gap-4 mt-4 text-xs text-gray-600">
+              {data.personnel.email && <span className="flex items-center gap-1"><Mail size={12} /> {data.personnel.email}</span>}
+              {data.personnel.telephone && <span className="flex items-center gap-1"><Phone size={12} /> {data.personnel.telephone}</span>}
+              {data.personnel.adresse && <span className="flex items-center gap-1"><MapPin size={12} /> {data.personnel.adresse}</span>}
+            </div>
+          </div>
+        </div>
+
+        {data.personnel.resume && (
+          <div className="mb-8">
+            <p className="text-sm leading-relaxed text-gray-700 italic bg-gray-50 p-4 rounded-lg border-l-4" style={{ borderLeftColor: data.parametres.couleurPrincipale }}>
+              "{data.personnel.resume}"
+            </p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-8">
+          <div className="col-span-2 space-y-8">
+            {data.experiences.length > 0 && (
+              <section>
+                <h4 className={styles.sousTitre} style={{ color: data.parametres.couleurPrincipale }}>Expériences</h4>
+                {data.experiences.map(exp => <ExperienceItem key={exp.id} exp={exp} />)}
+              </section>
+            )}
+            {data.projets.length > 0 && (
+              <section>
+                <h4 className={styles.sousTitre} style={{ color: data.parametres.couleurPrincipale }}>Projets</h4>
+                {data.projets.map(p => (
+                  <div key={p.id} className="mb-3">
+                    <p className="text-sm font-bold">{p.nom}</p>
+                    <p className="text-xs text-gray-600">{p.description}</p>
+                  </div>
+                ))}
+              </section>
+            )}
+          </div>
+          <div className="space-y-8">
+            {data.competences.length > 0 && (
+              <section>
+                <h4 className={styles.sousTitre} style={{ color: data.parametres.couleurPrincipale }}>Compétences</h4>
+                <div className="flex flex-wrap gap-2 py-1">
+                  {data.competences.map((s, i) => (
+                    <span
+                      key={i}
+                      className={`${styles.competence} inline-block whitespace-nowrap`}
+                      style={{
+                        backgroundColor: hexToRGBA(data.parametres.couleurPrincipale, 0.1),
+                        color: data.parametres.couleurPrincipale,
+                        padding: '4px 12px',
+                        borderRadius: '9999px',
+                        margin: '2px',
+                        display: 'inline-block',
+                        border: `1px solid ${hexToRGBA(data.parametres.couleurPrincipale, 0.05)}`
+                      }}
+                    >
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            )}
+            {data.formations.length > 0 && (
+              <section>
+                <h4 className={styles.sousTitre} style={{ color: data.parametres.couleurPrincipale }}>Formations</h4>
+                {data.formations.map(f => (
+                  <div key={f.id} className="mb-2">
+                    <p className="text-xs font-bold">{f.diplome}</p>
+                    <p className="text-[10px] text-gray-600">{f.ecole}</p>
+                  </div>
+                ))}
+              </section>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (certificationEnEdition !== null) {
     return (
       <motion.div
@@ -807,457 +1216,875 @@ function App() {
 
   // Affichage principal
   return (
-    <div className="h-screen flex flex-col relative overflow-hidden font-sans selection:bg-indigo-100 selection:text-indigo-900 bg-slate-50">
-      {/* Background Blobs for "Wow" effect */}
-      <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-500/10 rounded-full blur-[120px] animate-blob"></div>
-        <div className="absolute top-[20%] right-[-10%] w-[35%] h-[35%] bg-blue-500/10 rounded-full blur-[120px] animate-blob animation-delay-2000"></div>
-        <div className="absolute bottom-[-10%] left-[20%] w-[45%] h-[45%] bg-pink-500/10 rounded-full blur-[120px] animate-blob animation-delay-4000"></div>
-      </div>
+    <>
+      <AnimatePresence>
+        {chargement && <LoadingScreen color={cvData.parametres.couleurPrincipale} />}
+      </AnimatePresence>
 
-      {/* Header modernisé avec Tab Switcher pour Mobile */}
-      <header className="shrink-0 z-40 w-full glass-card border-none rounded-none shadow-sm">
-        <div className="container mx-auto px-4 sm:px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
-                <FileText className="text-white" size={24} />
-              </div>
-              <div className="hidden sm:block">
-                <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-900 to-purple-900 uppercase tracking-tight">
-                  JJ's CV Generative
-                </h1>
-                <p className="text-[10px] text-indigo-400 font-bold tracking-widest uppercase">Version 3.0 • Premium</p>
-              </div>
-            </div>
+      <motion.div
+        className="min-h-screen relative"
+        style={{
+          backgroundColor: '#f8fafc',
+          backgroundImage: `radial-gradient(at 0% 0%, ${cvData.parametres.couleurPrincipale}10 0, transparent 40%), radial-gradient(at 100% 100%, ${cvData.parametres.couleurPrincipale}10 0, transparent 40%)`
+        }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+      >
+        {/* Header */}
+        <motion.header
+          className="bg-white border-b border-gray-200 sticky top-0 z-10"
+          initial={{ y: -50 }}
+          animate={{ y: 0 }}
+          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        >
+          <div className="container mx-auto px-4 py-4">
+            <div className="flex items-center justify-between">
+              <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <Menu size={24} />
+                Générateur de CV
+              </h1>
+              <div className="flex items-center space-x-4">
 
-            {/* Tab Switcher (Visible sur Mobile uniquement) */}
-            <div className="md:hidden flex bg-slate-200/50 p-1 rounded-xl glass-card backdrop-blur-md">
-              <button
-                onClick={() => setOngletActif('edition')}
-                className={`px - 4 py - 2 rounded - lg text - sm font - semibold transition - all duration - 300 ${ongletActif === 'edition' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600'
-                  } `}
-              >
-                Édition
-              </button>
-              <button
-                onClick={() => setOngletActif('apercu')}
-                className={`px - 4 py - 2 rounded - lg text - sm font - semibold transition - all duration - 300 ${ongletActif === 'apercu' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600'
-                  } `}
-              >
-                Aperçu
-              </button>
-            </div>
+                {/* Optimiseur ATS */}
+                <ATSOptimizer cvData={cvData} />
 
-            <div className="flex items-center gap-4">
-              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-green-500/10 text-green-700 rounded-full border border-green-500/20">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-xs font-bold uppercase tracking-wider">{statutSauvegarde}</span>
-              </div>
-              <ATSOptimizer cvData={cvData} />
-
-              <PDFDownloadLink
-                document={<CVPDF data={cvData} />}
-                fileName={`CV - ${cvData.personnel.nomComplet?.replace(/\s+/g, '-') || 'sans-nom'}.pdf`}
-              >
-                {({ loading }) => (
+                {/* Bouton d'installation PWA */}
+                {!estInstalle && (
                   <motion.button
-                    className="p-2 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center gap-2"
+                    onClick={() => document.dispatchEvent(new CustomEvent('show-pwa-prompt'))}
+                    className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm flex items-center gap-1 hover:bg-blue-200 transition-colors"
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    disabled={loading}
                   >
-                    <Download size={18} />
-                    <span className="hidden sm:inline font-bold">Télécharger</span>
+                    <Download size={14} />
+                    Installer
                   </motion.button>
                 )}
-              </PDFDownloadLink>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </motion.header>
 
-      <main className="flex-1 overflow-hidden container mx-auto px-4 sm:px-6 py-4 relative z-10">
-        <div className="flex flex-col md:flex-row gap-6 items-stretch h-full">
-          {/* Section Édition */}
-          <div className={`w-full lg:w-[45%] h-full flex flex-col ${ongletActif === 'apercu' ? 'hidden lg:flex' : 'flex'} `}>
-            <div className="glass-card rounded-[2.5rem] p-6 sm:p-10 flex-1 overflow-y-auto custom-scrollbar shadow-2xl">
-              <div className="flex items-center justify-between mb-10 sticky top-0 bg-white/20 backdrop-blur-3xl py-6 z-40 border-b border-white/20 rounded-t-[2.5rem] -mt-10 -mx-10 px-10">
-                <h2 className="text-2xl font-black text-indigo-950 flex items-center gap-3">
-                  <div className="p-2.5 bg-indigo-600 rounded-2xl text-white shadow-xl shadow-indigo-100">
-                    <Pencil size={22} />
-                  </div>
-                  Éditeur <span className="text-indigo-600/30 ml-2">v3</span>
-                </h2>
-                <div className="flex items-center gap-4 bg-white/40 px-4 py-2 rounded-2xl border border-white/50 backdrop-blur-md">
-                  <div className="text-right">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Score AI</p>
-                    <p className="text-sm font-black text-indigo-600 font-mono leading-none">{completude}%</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-full border-4 border-slate-100 flex items-center justify-center relative overflow-hidden">
-                    <svg className="w-full h-full transform -rotate-90">
-                      <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-slate-100" />
-                      <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" strokeDasharray={126} strokeDashoffset={126 - (126 * completude) / 100} className="text-indigo-600 transition-all duration-1000" />
-                    </svg>
-                  </div>
+        {/* Contenu principal */}
+        <div className="container mx-auto px-4 py-6">
+          <div className="flex gap-6">
+            {/* Côté gauche - Formulaire */}
+            <motion.div
+              className="w-1/2 bg-white rounded-lg shadow-sm p-6 max-h-[calc(100vh-120px)] overflow-y-auto"
+              initial={{ x: -50, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.1 }}
+            >
+              <h2 className="text-lg font-semibold text-gray-700 mb-4 sticky top-0 bg-white py-2 flex items-center gap-2">
+                <AlertCircle size={18} />
+                Complétion du profil
+              </h2>
+
+              {/* Barre de progression */}
+              <div className="mb-6">
+                <div className="flex justify-between text-sm text-gray-600 mb-1">
+                  <span>
+                    {completude < 100
+                      ? `Encore ${Math.ceil((100 - completude) / 10)} sections à compléter.`
+                      : "Parfait ! Votre CV est complet."}
+                  </span>
+                  <span className="font-medium">{completude}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <motion.div
+                    className="rounded-full h-2 transition-all duration-300"
+                    style={{ backgroundColor: cvData.parametres.couleurPrincipale }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${completude}%` }}
+                    transition={{ duration: 0.5, ease: "easeOut" }}
+                  />
                 </div>
               </div>
 
-              <div className="space-y-12 pb-10">
-                {/* Templates Selector */}
-                <section>
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
-                      <Layout size={14} className="text-indigo-500" /> Templates Premium
-                    </h3>
-                    <div className="h-px flex-1 bg-gradient-to-r from-slate-200 to-transparent ml-4"></div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {[
-                      { id: 'classique', label: 'Classique', icon: <FileText size={16} /> },
-                      { id: 'moderne', label: 'Moderne', icon: <Star size={16} /> },
-                      { id: 'minimal', label: 'Eco Minimal', icon: <Minus size={16} /> },
-                      { id: 'developpeur', label: 'Dev Dark', icon: <Code size={16} /> },
-                      { id: 'creatif', label: 'Art Créatif', icon: <Palette size={16} /> },
-                      { id: 'neobrutalisme', label: 'Neo-Brutal', icon: <Zap size={16} /> },
-                      { id: 'glassmorphism', label: 'Futuriste', icon: <Sparkles size={16} /> },
-                      { id: 'luxury', label: 'Elite Luxe', icon: <Award size={16} /> }
-                    ].map((t) => (
-                      <button key={t.id} onClick={() => changerTemplate(t.id)} className={`group relative p - 4 rounded - 3xl flex flex - col items - center gap - 3 transition - all duration - 300 border - 2 ${cvData.parametres.template === t.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-2xl scale-105' : 'bg-white/50 border-white hover:border-indigo-100 hover:bg-white text-slate-600'} `}>
-                        <div className={`${cvData.parametres.template === t.id ? 'text-white' : 'text-indigo-500 group-hover:scale-110 transition-transform'} `}>{t.icon}</div>
-                        <span className="text-[10px] font-black uppercase tracking-wider">{t.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </section>
+              {/* Sélecteur de template avec tous les templates */}
+              <div className="mb-6">
+                <h3 className="font-medium text-gray-700 mb-3">Choisir un template</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { nom: 'classique', label: 'Classique', icon: <FileText size={16} /> },
+                    { nom: 'moderne', label: 'Moderne', icon: <Star size={16} /> },
+                    { nom: 'professionnel', label: 'Pro', icon: <BriefcaseIcon size={16} /> },
+                    { nom: 'sidebar_left', label: 'Sidebar G.', icon: <Layout size={16} className="rotate-90" /> },
+                    { nom: 'sidebar_right', label: 'Sidebar D.', icon: <Layout size={16} className="-rotate-90" /> },
+                    { nom: 'fancy_header', label: 'Élégant', icon: <Sparkles size={16} /> },
+                    { nom: 'developpeur', label: 'Dev', icon: <Code size={16} /> },
+                    { nom: 'creatif', label: 'Créatif', icon: <Palette size={16} /> },
+                    { nom: 'minimal', label: 'Minimal', icon: <Minus size={16} /> }
+                  ].map((template) => (
+                    <motion.button
+                      key={template.nom}
+                      onClick={() => changerTemplate(template.nom)}
+                      className={`px-3 py-2 rounded-md capitalize transition-all flex items-center gap-2 ${cvData.parametres.template === template.nom
+                        ? 'text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      style={cvData.parametres.template === template.nom ? { backgroundColor: cvData.parametres.couleurPrincipale } : {}}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <span className="text-gray-500" style={cvData.parametres.template === template.nom ? { color: 'white' } : {}}>
+                        {template.icon}
+                      </span>
+                      <span>{template.label}</span>
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
 
-                {/* Sélecteur de Couleurs */}
-                <section>
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
-                      <Palette size={14} className="text-indigo-500" /> Couleur Thème
-                    </h3>
-                    <div className="h-px flex-1 bg-gradient-to-r from-slate-200 to-transparent ml-4"></div>
-                  </div>
-                  <div className="flex flex-wrap gap-3 p-4 bg-white/40 rounded-3xl border border-white/50">
-                    {[
-                      '#2563eb', '#7c3aed', '#db2777', '#dc2626',
-                      '#ea580c', '#16a34a', '#0891b2', '#1f2937'
-                    ].map((couleur) => (
-                      <button
-                        key={couleur}
-                        onClick={() => changerCouleurPrincipale(couleur)}
-                        className={`w - 10 h - 10 rounded - full transition - all border - 4 ${cvData.parametres.couleurPrincipale === couleur
-                          ? 'border-white ring-2 ring-indigo-500 scale-110 shadow-lg'
-                          : 'border-white/50'
-                          } `}
-                        style={{ backgroundColor: couleur }}
-                      />
-                    ))}
-                    <input
-                      type="color"
-                      value={cvData.parametres.couleurPrincipale}
-                      onChange={(e) => changerCouleurPrincipale(e.target.value)}
-                      className="w-10 h-10 bg-transparent cursor-pointer rounded-full overflow-hidden"
-                    />
-                  </div>
-                </section>
+              {/* Sélecteur de couleur */}
+              <div className="mb-6">
+                <h3 className="font-medium text-gray-700 mb-3">Couleur principale</h3>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={cvData.parametres.couleurPrincipale}
+                    onChange={(e) => changerCouleurPrincipale(e.target.value)}
+                    className="w-10 h-10 rounded cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={cvData.parametres.couleurPrincipale}
+                    onChange={(e) => changerCouleurPrincipale(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
+                    placeholder="#2563eb"
+                  />
+                </div>
+              </div>
 
-                {/* Photo & Identité */}
-                <section className="space-y-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
-                      <User size={14} className="text-indigo-500" /> Identité & Photo
-                    </h3>
-                    <div className="h-px flex-1 bg-gradient-to-r from-slate-200 to-transparent ml-4"></div>
-                  </div>
-
-                  <div className="flex flex-col md:flex-row gap-6 items-center bg-white/40 p-6 rounded-[2rem] border border-white/50">
-                    <div className="relative group">
-                      <div className="w-24 h-24 rounded-2xl overflow-hidden bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center transition-all group-hover:border-indigo-400">
-                        {cvData.personnel.photo ? (
-                          <img src={cvData.personnel.photo} alt="Profile" className="w-full h-full object-cover" />
-                        ) : (
-                          <User size={32} className="text-slate-300" />
-                        )}
-                      </div>
+              {/* Section Informations personnelles */}
+              <div className="mb-6">
+                <h3 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
+                  <User size={18} /> Informations personnelles
+                </h3>
+                <div className="space-y-3">
+                  {/* Photo (optionnel) */}
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Photo de profil</label>
+                    <div className="flex items-center gap-3">
+                      {cvData.personnel.photo && (
+                        <div className="relative w-12 h-12 rounded-full overflow-hidden border">
+                          <img src={cvData.personnel.photo} alt="Preview" className="w-full h-full object-cover" />
+                        </div>
+                      )}
                       <input
                         type="file"
                         accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onloadend = () => handleChangementPersonnel('photo', reader.result);
-                            reader.readAsDataURL(file);
-                          }
-                        }}
-                        className="absolute inset-0 opacity-0 cursor-pointer"
+                        onChange={handlePhotoChange}
+                        className="hidden"
+                        id="photo-upload"
                       />
+                      <label
+                        htmlFor="photo-upload"
+                        className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md text-sm cursor-pointer hover:bg-gray-200 border border-gray-300"
+                      >
+                        {cvData.personnel.photo ? 'Changer la photo' : 'Choisir une photo'}
+                      </label>
                       {cvData.personnel.photo && (
-                        <button onClick={() => handleChangementPersonnel('photo', '')} className="absolute -top-2 -right-2 p-1 bg-rose-500 text-white rounded-lg shadow-lg">
-                          <X size={12} />
+                        <button
+                          onClick={() => handleChangementPersonnel('photo', '')}
+                          className="text-red-500 text-sm hover:underline"
+                        >
+                          Supprimer
                         </button>
                       )}
                     </div>
-                    <div className="flex-1 w-full space-y-4">
-                      <div className="grid grid-cols-1 gap-4">
-                        <input type="text" value={cvData.personnel.nomComplet || ''} onChange={(e) => handleChangementPersonnel('nomComplet', e.target.value)} className="w-full glass-input px-5 py-3 rounded-xl text-sm font-semibold" placeholder="Nom complet" />
-                        <input type="text" value={cvData.personnel.titrePoste || ''} onChange={(e) => handleChangementPersonnel('titrePoste', e.target.value)} className="w-full glass-input px-5 py-3 rounded-xl text-sm font-semibold" placeholder="Titre du poste" />
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                {/* Contact Détails */}
-                <section className="space-y-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
-                      <Mail size={14} className="text-indigo-500" /> Coordonnées
-                    </h3>
-                    <div className="h-px flex-1 bg-gradient-to-r from-slate-200 to-transparent ml-4"></div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="relative">
-                      <Mail size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="email" value={cvData.personnel.email || ''} onChange={(e) => handleChangementPersonnel('email', e.target.value)} className="w-full glass-input pl-11 pr-5 py-3 rounded-xl text-sm" placeholder="Email" />
-                    </div>
-                    <div className="relative">
-                      <Phone size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="tel" value={cvData.personnel.telephone || ''} onChange={(e) => handleChangementPersonnel('telephone', e.target.value)} className="w-full glass-input pl-11 pr-5 py-3 rounded-xl text-sm" placeholder="Téléphone" />
-                    </div>
-                    <div className="relative">
-                      <MapPin size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="text" value={cvData.personnel.adresse || ''} onChange={(e) => handleChangementPersonnel('adresse', e.target.value)} className="w-full glass-input pl-11 pr-5 py-3 rounded-xl text-sm" placeholder="Adresse" />
-                    </div>
-                    <div className="relative">
-                      <Linkedin size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input type="text" value={cvData.personnel.linkedin || ''} onChange={(e) => handleChangementPersonnel('linkedin', e.target.value)} className="w-full glass-input pl-11 pr-5 py-3 rounded-xl text-sm" placeholder="LinkedIn" />
-                    </div>
-                  </div>
-                </section>
-
-                {/* Résumé Restored */}
-                <section className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-3">Résumé Premium (IA)</label>
-                  <div className="relative group">
-                    <textarea value={cvData.personnel.resume || ''} onChange={(e) => handleChangementPersonnel('resume', e.target.value)} rows="4" className="w-full glass-input px-5 py-4 rounded-3xl text-sm leading-relaxed focus:ring-4 focus:ring-indigo-500/10 outline-none" placeholder="Racontez votre histoire..." />
-                    <button onClick={async () => {
-                      try {
-                        const response = await enhanceCVContent('résumé', cvData.personnel.resume);
-                        handleChangementPersonnel('resume', response);
-                      } catch (e) { console.error(e); }
-                    }} className="absolute bottom-4 right-4 p-2 bg-indigo-600 text-white rounded-xl shadow-lg opacity-0 group-hover:opacity-100 transition-all hover:scale-105">
-                      <Sparkles size={12} />
-                    </button>
-                  </div>
-                </section>
-
-                {/* Expériences Section Restored */}
-                <section className="space-y-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
-                      <Briefcase size={14} className="text-indigo-500" /> Expériences
-                    </h3>
-                    <button onClick={() => setExperienceEnEdition({ id: Date.now(), poste: '', entreprise: '', dateDebut: '', dateFin: '', description: '', ville: '' })} className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
-                      <Plus size={16} />
-                    </button>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Nom complet</label>
+                    <input
+                      type="text"
+                      value={cvData.personnel.nomComplet || ''}
+                      onChange={(e) => handleChangementPersonnel('nomComplet', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="Votre nom complet"
+                    />
                   </div>
 
-                  <div className="space-y-4">
-                    {cvData.experiences.map((exp) => (
-                      <div key={exp.id} className="group glass-card p-5 rounded-2xl border border-white/50 hover:border-indigo-200 transition-all">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="font-bold text-indigo-950 text-sm">{exp.poste || 'Nouvelle expérience'}</h4>
-                            <p className="text-xs text-indigo-600 font-semibold">{exp.entreprise}</p>
-                            <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-tight">{exp.dateDebut} — {exp.dateFin}</p>
-                          </div>
-                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => setExperienceEnEdition(exp)} className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-50 hover:text-indigo-600"><Pencil size={12} /></button>
-                            <button onClick={() => supprimerExperience(exp.id)} className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-rose-50 hover:text-rose-600"><Trash2 size={12} /></button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {cvData.experiences.length === 0 && (
-                      <div className="text-center py-10 bg-slate-50/50 rounded-3xl border-2 border-dashed border-slate-200">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Aucune expérience ajoutée</p>
-                      </div>
-                    )}
-                  </div>
-                </section>
-
-                {/* Formations Section */}
-                <section className="space-y-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
-                      <GraduationCap size={14} className="text-indigo-500" /> Formations
-                    </h3>
-                    <button onClick={() => setFormationEnEdition({ id: Date.now(), diplome: '', ecole: '', dateDebut: '', dateFin: '', description: '', ville: '' })} className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
-                      <Plus size={16} />
-                    </button>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Titre du poste</label>
+                    <input
+                      type="text"
+                      value={cvData.personnel.titrePoste || ''}
+                      onChange={(e) => handleChangementPersonnel('titrePoste', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="Développeur Full-Stack"
+                    />
                   </div>
 
-                  <div className="space-y-4">
-                    {cvData.formations.map((f) => (
-                      <div key={f.id} className="group glass-card p-5 rounded-2xl border border-white/50 hover:border-indigo-200 transition-all">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="font-bold text-indigo-950 text-sm">{f.diplome || 'Nouveau diplôme'}</h4>
-                            <p className="text-xs text-indigo-600 font-semibold">{f.ecole}</p>
-                            <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-tight">{f.dateDebut} — {f.dateFin}</p>
-                          </div>
-                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => setFormationEnEdition(f)} className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-50 hover:text-indigo-600"><Pencil size={12} /></button>
-                            <button onClick={() => supprimerFormation(f.id)} className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-rose-50 hover:text-rose-600"><Trash2 size={12} /></button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {cvData.formations.length === 0 && (
-                      <div className="text-center py-10 bg-slate-50/50 rounded-3xl border-2 border-dashed border-slate-200">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Aucune formation ajoutée</p>
-                      </div>
-                    )}
-                  </div>
-                </section>
-
-                {/* Compétences Section */}
-                <section className="space-y-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-2">
-                      <Crosshair size={14} className="text-indigo-500" /> Compétences
-                    </h3>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Résumé professionnel</label>
+                    <textarea
+                      value={cvData.personnel.resume || ''}
+                      onChange={(e) => handleChangementPersonnel('resume', e.target.value)}
+                      rows="3"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="Décrivez votre profil en quelques phrases..."
+                    />
                   </div>
 
-                  <div className="bg-white/40 p-6 rounded-[2rem] border border-white/50 space-y-4">
-                    <div className="flex gap-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
+                        <Mail size={14} /> Email
+                      </label>
                       <input
-                        type="text"
-                        id="newSkillInput"
-                        className="flex-1 glass-input px-5 py-3 rounded-xl text-sm"
-                        placeholder="Ex: React, UX Design..."
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter' && e.target.value.trim()) {
-                            ajouterCompetence(e.target.value);
-                            e.target.value = '';
-                          }
-                        }}
+                        type="email"
+                        value={cvData.personnel.email || ''}
+                        onChange={(e) => handleChangementPersonnel('email', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        placeholder="email@exemple.com"
                       />
-                      <button
-                        onClick={() => {
-                          const input = document.getElementById('newSkillInput');
-                          if (input.value.trim()) {
-                            ajouterCompetence(input.value);
-                            input.value = '';
-                          }
-                        }}
-                        className="bg-indigo-600 text-white p-3 rounded-xl hover:bg-indigo-700 shadow-lg"
-                      >
-                        <Plus size={18} />
-                      </button>
                     </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {cvData.competences.map((skill, i) => (
-                        <span key={i} className="group flex items-center gap-2 bg-indigo-50/50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold border border-indigo-100 hover:bg-indigo-200 transition-colors">
-                          {skill}
-                          <button onClick={() => supprimerCompetence(i)} className="text-indigo-300 hover:text-rose-500 transition-colors">
-                            <X size={14} />
-                          </button>
-                        </span>
-                      ))}
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
+                        <Phone size={14} /> Téléphone
+                      </label>
+                      <input
+                        type="tel"
+                        value={cvData.personnel.telephone || ''}
+                        onChange={(e) => handleChangementPersonnel('telephone', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        placeholder="+229 01 51 85 24 20"
+                      />
                     </div>
                   </div>
-                </section>
 
-                <div className="pt-8 border-t border-indigo-100 flex flex-wrap gap-3">
-                  <button onClick={reinitialiserFormulaire} className="flex-1 min-w-[140px] px-6 py-4 bg-rose-50 text-rose-600 rounded-3xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all flex items-center justify-center gap-2">
-                    <Trash2 size={16} /> Réinitialiser
-                  </button>
-                  <button onClick={exporterJSON} className="flex-1 min-w-[140px] px-6 py-4 bg-indigo-50 text-indigo-700 rounded-3xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all flex items-center justify-center gap-2">
-                    <Download size={16} /> Exporter .json
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section Prévisualisation */}
-          <div className={`w-full md:w-[55%] h-full ${ongletActif === 'edition' ? 'hidden md:block' : 'block'}`}>
-            <div className="glass-card rounded-[2.5rem] p-4 sm:p-10 h-full overflow-y-auto custom-scrollbar shadow-2xl relative">
-              <div className="flex justify-between items-center mb-10 sticky top-0 bg-white/20 backdrop-blur-3xl py-6 z-40 border-b border-white/20 rounded-t-[2.5rem] -mt-10 -mx-10 px-10">
-                <h2 className="text-2xl font-black text-indigo-950 flex items-center gap-3">
-                  <div className="p-2.5 bg-purple-600 rounded-2xl text-white shadow-xl shadow-purple-100">
-                    <Sparkles size={22} />
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
+                      <MapPin size={14} /> Adresse
+                    </label>
+                    <input
+                      type="text"
+                      value={cvData.personnel.adresse || ''}
+                      onChange={(e) => handleChangementPersonnel('adresse', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="Ville, Pays"
+                    />
                   </div>
-                  Live Preview
-                </h2>
-                <div className="hidden sm:flex gap-2">
-                  {['bg-rose-400', 'bg-amber-400', 'bg-emerald-400'].map(c => <div key={c} className={`w-3 h-3 rounded-full ${c} opacity-30`} />)}
+
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
+                      <Globe size={14} /> Site web / Portfolio
+                    </label>
+                    <input
+                      type="text"
+                      value={cvData.personnel.siteWeb || ''}
+                      onChange={(e) => handleChangementPersonnel('siteWeb', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="portfoliojolidon.vercel.app"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
+                      <Linkedin size={14} /> LinkedIn
+                    </label>
+                    <input
+                      type="text"
+                      value={cvData.personnel.linkedin || ''}
+                      onChange={(e) => handleChangementPersonnel('linkedin', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="linkedin.com/in/votreprofil"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
+                      <Github size={14} /> GitHub
+                    </label>
+                    <input
+                      type="text"
+                      value={cvData.personnel.github || ''}
+                      onChange={(e) => handleChangementPersonnel('github', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="github.com/joboy05"
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="flex justify-center bg-slate-900/5 rounded-[2rem] p-4 sm:p-8 min-h-[800px] transition-all duration-500 overflow-x-hidden">
-                <div className="origin-top transition-transform duration-500 shadow-[0_40px_100px_-20px_rgba(0,0,0,0.3)] bg-white w-full max-w-[210mm]"
-                  style={{
-                    transform: `scale(${previewScale})`,
-                  }}>
-                  <div className={`${stylesPreview.conteneur} min-h-[297mm] relative`}>
-                    {/* Template decorations and logic restored inside */}
-                    {cvData.parametres.template === 'creatif' && (
-                      <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-100 rounded-full blur-[100px] -mr-32 -mt-32 opacity-50 pointer-events-none"></div>
-                    )}
+              {/* Section Expériences avec Drag & Drop */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
+                    <Briefcase size={18} /> Expériences
+                  </h3>
+                  <span className="text-sm text-gray-500">{cvData.experiences.length} élément(s)</span>
+                </div>
 
-                    {/* Preview Content (Simplié pour robustesse) */}
-                    <div className="p-8 sm:p-12">
-                      <h3 className={stylesPreview.nom} style={{ color: cvData.parametres.couleurPrincipale }}>{cvData.personnel.nomComplet || 'Nom complet'}</h3>
-                      <p className={stylesPreview.titre}>{cvData.personnel.titrePoste || 'Poste visé'}</p>
-
-                      <div className={stylesPreview.contact}>
-                        {cvData.personnel.email && <span className="flex items-center gap-1"><Mail size={12} className="shrink-0" /> {cvData.personnel.email}</span>}
-                        {cvData.personnel.telephone && <span className="flex items-center gap-1"><Phone size={12} className="shrink-0" /> {cvData.personnel.telephone}</span>}
-                      </div>
-
-                      {cvData.personnel.resume && (
-                        <div className="mt-8">
-                          <h4 className={stylesPreview.sousTitre} style={{ color: cvData.parametres.couleurPrincipale }}>Profil</h4>
-                          <p className="text-sm leading-relaxed text-slate-600 italic">{cvData.personnel.resume}</p>
-                        </div>
-                      )}
-
-                      {cvData.experiences.length > 0 && (
-                        <div className="mt-10">
-                          <h4 className={stylesPreview.sousTitre} style={{ color: cvData.parametres.couleurPrincipale }}>Expériences</h4>
-                          <div className="space-y-6 mt-4">
-                            {cvData.experiences.map(exp => (
-                              <div key={exp.id}>
-                                <div className="flex justify-between font-bold text-sm">
-                                  <span>{exp.poste}</span>
-                                  <span className="text-slate-400">{exp.dateDebut} - {exp.dateFin}</span>
-                                </div>
-                                <p className="text-xs font-bold text-indigo-600">{exp.entreprise}</p>
-                                <p className="text-xs mt-2 text-slate-500 whitespace-pre-line leading-relaxed">{exp.description}</p>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEndExperiences}
+                >
+                  <SortableContext
+                    items={cvData.experiences.map(exp => exp.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-4">
+                      <AnimatePresence>
+                        {cvData.experiences.map((exp) => (
+                          <motion.div
+                            key={exp.id}
+                            initial={{ opacity: 0, y: -20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -100 }}
+                            transition={{ duration: 0.2 }}
+                          >
+                            <DraggableItem
+                              id={exp.id}
+                              onEdit={() => setExperienceEnEdition(exp)}
+                              onDelete={() => supprimerExperience(exp.id)}
+                            >
+                              <div className="font-medium">{exp.poste}</div>
+                              <div className="text-sm text-gray-600">
+                                {exp.entreprise} • {exp.dateDebut} - {exp.dateFin}
                               </div>
-                            ))}
+                            </DraggableItem>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+
+                <motion.button
+                  onClick={() => setExperienceEnEdition({})}
+                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
+                  style={{ color: cvData.parametres.couleurPrincipale }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Plus size={16} /> Ajouter une expérience
+                </motion.button>
+              </div>
+
+              {/* Section Formations avec Drag & Drop */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
+                    <GraduationCap size={18} /> Formations
+                  </h3>
+                  <span className="text-sm text-gray-500">{cvData.formations.length} élément(s)</span>
+                </div>
+
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEndFormations}
+                >
+                  <SortableContext
+                    items={cvData.formations.map(f => f.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-4">
+                      <AnimatePresence>
+                        {cvData.formations.map((formation) => (
+                          <motion.div
+                            key={formation.id}
+                            initial={{ opacity: 0, y: -20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -100 }}
+                            transition={{ duration: 0.2 }}
+                          >
+                            <DraggableItem
+                              id={formation.id}
+                              onEdit={() => setFormationEnEdition(formation)}
+                              onDelete={() => supprimerFormation(formation.id)}
+                            >
+                              <div className="font-medium">{formation.diplome}</div>
+                              <div className="text-sm text-gray-600">
+                                {formation.ecole} • {formation.dateDebut} - {formation.dateFin}
+                              </div>
+                            </DraggableItem>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+
+                <motion.button
+                  onClick={() => setFormationEnEdition({})}
+                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
+                  style={{ color: cvData.parametres.couleurPrincipale }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Plus size={16} /> Ajouter une formation
+                </motion.button>
+              </div>
+
+              {/* Section Compétences avec animations et IA */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
+                    <Zap size={18} /> Compétences
+                  </h3>
+                  <SkillSuggestions
+                    titre={cvData.personnel.titrePoste}
+                    onAddSkill={ajouterCompetenceDepuisSuggestion}
+                  />
+                </div>
+
+                <motion.div
+                  className="flex flex-wrap gap-2 mb-3"
+                  variants={{
+                    hidden: { opacity: 0 },
+                    show: {
+                      opacity: 1,
+                      transition: { staggerChildren: 0.05 }
+                    }
+                  }}
+                  initial="hidden"
+                  animate="show"
+                >
+                  <AnimatePresence>
+                    {cvData.competences.map((competence, index) => (
+                      <motion.span
+                        key={index}
+                        variants={{
+                          hidden: { opacity: 0, scale: 0.8 },
+                          show: { opacity: 1, scale: 1 }
+                        }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        className="px-3 py-1 bg-gray-100 rounded-full text-sm flex items-center gap-1 group"
+                      >
+                        {competence}
+                        <button
+                          onClick={() => supprimerCompetence(index)}
+                          className="text-gray-500 hover:text-red-500"
+                          title="Supprimer"
+                        >
+                          <X size={14} />
+                        </button>
+                      </motion.span>
+                    ))}
+                  </AnimatePresence>
+                </motion.div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={nouvelleCompetence}
+                    onChange={(e) => setNouvelleCompetence(e.target.value)}
+                    onKeyPress={handleToucheEntree}
+                    placeholder="Ajouter une compétence (ex: React.js)"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  />
+                  <motion.button
+                    onClick={ajouterCompetence}
+                    className="px-4 py-2 text-white rounded-md hover:opacity-90 text-sm flex items-center gap-1"
+                    style={{ backgroundColor: cvData.parametres.couleurPrincipale }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Plus size={14} /> Ajouter
+                  </motion.button>
+                </div>
+              </div>
+
+              {/* Section Langues avec Drag & Drop */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
+                    <Languages size={18} /> Langues
+                  </h3>
+                  <span className="text-sm text-gray-500">{cvData.langues.length} élément(s)</span>
+                </div>
+
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEndLangues}
+                >
+                  <SortableContext
+                    items={cvData.langues.map(l => l.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-4">
+                      <AnimatePresence>
+                        {cvData.langues.map((langue) => (
+                          <motion.div
+                            key={langue.id}
+                            initial={{ opacity: 0, y: -20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -100 }}
+                            transition={{ duration: 0.2 }}
+                          >
+                            <DraggableItem
+                              id={langue.id}
+                              onEdit={() => setLangueEnEdition(langue)}
+                              onDelete={() => supprimerLangue(langue.id)}
+                            >
+                              <div className="font-medium">{langue.nom}</div>
+                              <div className="text-sm text-gray-600">{langue.niveau}</div>
+                            </DraggableItem>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+
+                <motion.button
+                  onClick={() => setLangueEnEdition({})}
+                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
+                  style={{ color: cvData.parametres.couleurPrincipale }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Plus size={16} /> Ajouter une langue
+                </motion.button>
+              </div>
+
+              {/* Section Centres d'intérêt avec Drag & Drop */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
+                    <Heart size={18} /> Centres d'intérêt
+                  </h3>
+                  <span className="text-sm text-gray-500">{cvData.centresInteret.length} élément(s)</span>
+                </div>
+
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEndCentresInteret}
+                >
+                  <SortableContext
+                    items={cvData.centresInteret.map(c => c.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-4">
+                      <AnimatePresence>
+                        {cvData.centresInteret.map((centre) => (
+                          <motion.div
+                            key={centre.id}
+                            initial={{ opacity: 0, y: -20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -100 }}
+                            transition={{ duration: 0.2 }}
+                          >
+                            <DraggableItem
+                              id={centre.id}
+                              onEdit={() => setCentreInteretEnEdition(centre)}
+                              onDelete={() => supprimerCentreInteret(centre.id)}
+                            >
+                              <div className="font-medium">{centre.nom}</div>
+                            </DraggableItem>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+
+                <motion.button
+                  onClick={() => setCentreInteretEnEdition({})}
+                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
+                  style={{ color: cvData.parametres.couleurPrincipale }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Plus size={16} /> Ajouter un centre d'intérêt
+                </motion.button>
+              </div>
+
+              {/* Section Certifications avec Drag & Drop */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
+                    <Award size={18} /> Certifications
+                  </h3>
+                  <span className="text-sm text-gray-500">{cvData.certifications.length} élément(s)</span>
+                </div>
+
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEndCertifications}
+                >
+                  <SortableContext
+                    items={cvData.certifications.map(c => c.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-4">
+                      <AnimatePresence>
+                        {cvData.certifications.map((cert) => (
+                          <motion.div
+                            key={cert.id}
+                            initial={{ opacity: 0, y: -20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -100 }}
+                            transition={{ duration: 0.2 }}
+                          >
+                            <DraggableItem
+                              id={cert.id}
+                              onEdit={() => setCertificationEnEdition(cert)}
+                              onDelete={() => supprimerCertification(cert.id)}
+                            >
+                              <div className="font-medium">{cert.nom}</div>
+                              <div className="text-sm text-gray-600">
+                                {cert.organisme} • {cert.date}
+                              </div>
+                            </DraggableItem>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+
+                <motion.button
+                  onClick={() => setCertificationEnEdition({})}
+                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
+                  style={{ color: cvData.parametres.couleurPrincipale }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Plus size={16} /> Ajouter une certification
+                </motion.button>
+              </div>
+
+              {/* Section Projets avec Drag & Drop */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
+                    <Folder size={18} /> Projets
+                  </h3>
+                  <span className="text-sm text-gray-500">{cvData.projets.length} élément(s)</span>
+                </div>
+
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEndProjets}
+                >
+                  <SortableContext
+                    items={cvData.projets.map(p => p.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-4">
+                      <AnimatePresence>
+                        {cvData.projets.map((projet) => (
+                          <motion.div
+                            key={projet.id}
+                            initial={{ opacity: 0, y: -20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -100 }}
+                            transition={{ duration: 0.2 }}
+                          >
+                            <DraggableItem
+                              id={projet.id}
+                              onEdit={() => setProjetEnEdition(projet)}
+                              onDelete={() => supprimerProjet(projet.id)}
+                            >
+                              <div className="font-medium">{projet.nom}</div>
+                              <div className="text-sm text-gray-600">{projet.description}</div>
+                            </DraggableItem>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+
+                <motion.button
+                  onClick={() => setProjetEnEdition({})}
+                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
+                  style={{ color: cvData.parametres.couleurPrincipale }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Plus size={16} /> Ajouter un projet
+                </motion.button>
+              </div>
+
+              {/* Boutons d'action */}
+              <div className="flex space-x-3 mt-6 sticky bottom-0 bg-white py-4 border-t">
+                <motion.button
+                  onClick={reinitialiserFormulaire}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 flex items-center gap-2"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <Trash2 size={16} /> Réinitialiser
+                </motion.button>
+
+                <div className="relative">
+                  <motion.button
+                    onClick={() => document.getElementById('fileInput').click()}
+                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 flex items-center gap-2"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <Folder size={16} /> Importer JSON
+                  </motion.button>
+                  <input
+                    type="file"
+                    id="fileInput"
+                    accept=".json"
+                    onChange={importerJSON}
+                    className="hidden"
+                  />
+                </div>
+
+                <motion.button
+                  onClick={exporterJSON}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 flex items-center gap-2"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <Download size={16} /> Exporter JSON
+                </motion.button>
+
+                <motion.button
+                  className="px-4 py-2 text-white rounded-md hover:opacity-90 ml-auto flex items-center gap-2"
+                  style={{ backgroundColor: cvData.parametres.couleurPrincipale }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <Check size={16} /> Sauvegarder
+                </motion.button>
+              </div>
+
+              {/* Message d'erreur import */}
+              {erreurImport && (
+                <motion.div
+                  className="mt-3 text-sm text-red-600 flex items-center gap-1"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                >
+                  <AlertCircle size={14} /> ⚠️ {erreurImport}
+                </motion.div>
+              )}
+            </motion.div>
+
+            {/* Côté droit - Prévisualisation avec tous les templates */}
+            <motion.div
+              className="w-1/2 bg-white rounded-lg shadow-sm p-6 max-h-[calc(100vh-120px)] overflow-y-auto"
+              initial={{ x: 50, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+            >
+              <div className="flex justify-between items-center mb-4 sticky top-0 bg-white py-2">
+                <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
+                  <Menu size={18} /> Prévisualisation
+                </h2>
+                <motion.button
+                  onClick={exporterPDF}
+                  disabled={enTrainDeGenererPDF}
+                  className="px-4 py-2 text-white rounded-md hover:opacity-90 flex items-center gap-2 text-sm shadow-sm"
+                  style={{ backgroundColor: cvData.parametres.couleurPrincipale }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  {enTrainDeGenererPDF ? (
+                    <>⏳ Génération...</>
+                  ) : (
+                    <>
+                      <Download size={16} /> Télécharger PDF
+                    </>
+                  )}
+                </motion.button>
+              </div>
+
+              {/* Prévisualisation complète du CV avec tous les templates */}
+              <div ref={cvRef} id="cv-preview-export" className={stylesPreview.conteneur}>
+                {/* Layout spécial pour Sidebar Left */}
+                {cvData.parametres.template === 'sidebar_left' && (
+                  <>
+                    <div className={stylesPreview.sidebar} style={{ backgroundColor: cvData.parametres.couleurPrincipale === '#2563eb' ? '#111827' : cvData.parametres.couleurPrincipale }}>
+                      {/* Photo */}
+                      <div className="w-24 h-24 rounded-full border-4 border-white/20 overflow-hidden mb-4 bg-white/10 flex items-center justify-center">
+                        {cvData.personnel.photo ? (
+                          <img src={cvData.personnel.photo} className="w-full h-full object-cover" />
+                        ) : (
+                          <User size={40} className="text-white/30" />
+                        )}
+                      </div>
+                      <TextRenderer data={cvData} styles={stylesPreview} section="sidebar" />
+                    </div>
+                    <div className={stylesPreview.main}>
+                      <TextRenderer data={cvData} styles={stylesPreview} section="main" />
+                    </div>
+                  </>
+                )}
+
+                {/* Layout spécial pour Sidebar Right */}
+                {cvData.parametres.template === 'sidebar_right' && (
+                  <>
+                    <div className={stylesPreview.main}>
+                      <TextRenderer data={cvData} styles={stylesPreview} section="header" />
+                      <TextRenderer data={cvData} styles={stylesPreview} section="main" />
+                    </div>
+                    <div className={stylesPreview.sidebar}>
+                      <div className="w-full aspect-square rounded-xl overflow-hidden mb-6 bg-gray-200 flex items-center justify-center border-4 border-white shadow-sm">
+                        {cvData.personnel.photo ? (
+                          <img src={cvData.personnel.photo} className="w-full h-full object-cover" />
+                        ) : (
+                          <User size={40} className="text-gray-400" />
+                        )}
+                      </div>
+                      <TextRenderer data={cvData} styles={stylesPreview} section="sidebar" />
+                    </div>
+                  </>
+                )}
+
+                {/* Layout spécial pour Fancy Header */}
+                {cvData.parametres.template === 'fancy_header' && (
+                  <>
+                    <div className={stylesPreview.header} style={{ backgroundColor: cvData.parametres.couleurPrincipale }}>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h1 className={stylesPreview.nom}>{cvData.personnel.nomComplet}</h1>
+                          <p className={stylesPreview.titre}>{cvData.personnel.titrePoste}</p>
+                          <div className={stylesPreview.contact}>
+                            {cvData.personnel.email && <span className="flex items-center gap-1"><Mail size={12} /> {cvData.personnel.email}</span>}
+                            {cvData.personnel.telephone && <span className="flex items-center gap-1"><Phone size={12} /> {cvData.personnel.telephone}</span>}
+                            {cvData.personnel.adresse && <span className="flex items-center gap-1"><MapPin size={12} /> {cvData.personnel.adresse}</span>}
                           </div>
                         </div>
-                      )}
+                        <div className="w-24 h-24 rounded-2xl border-4 border-white overflow-hidden shadow-2xl rotate-3">
+                          {cvData.personnel.photo ? (
+                            <img src={cvData.personnel.photo} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full bg-white/20 flex items-center justify-center"><User size={40} /></div>
+                          )}
+                        </div>
+                      </div>
                     </div>
+                    <div className={stylesPreview.body}>
+                      <TextRenderer data={cvData} styles={stylesPreview} section="full" />
+                    </div>
+                  </>
+                )}
+
+                {/* Layouts existants (Moderne, Classique, etc.) */}
+                {!['sidebar_left', 'sidebar_right', 'fancy_header'].includes(cvData.parametres.template) && (
+                  <div className="w-full">
+                    {/* ... (Reste du code existant pour les autres templates, adapté) */}
+                    <DefaultRenderer data={cvData} styles={stylesPreview} />
                   </div>
-                </div>
+                )}
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
-      </main>
 
-      {/* PWA & Footer */}
-      <PWAInstallPrompt />
-      <UpdateNotification />
-    </div>
+        {/* Composants PWA */}
+        <PWAInstallPrompt />
+        <UpdateNotification />
+      </motion.div>
+    </>
   );
 }
 
