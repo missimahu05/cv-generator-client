@@ -1348,7 +1348,7 @@ function App() {
                   CV
                 </div>
                 <div>
-                  <span className="font-bold text-slate-800 text-sm">CV Builder</span>
+                  <span className="font-bold text-slate-800 text-sm">Jj's CV Generator</span>
                   <span className="hidden sm:inline text-xs text-slate-400 ml-2">• {statutSauvegarde}</span>
                 </div>
               </div>
