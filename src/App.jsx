@@ -51,7 +51,8 @@ import {
   Briefcase as BriefcaseIcon,
   FileText,
   Minus,
-  Star
+  Star,
+  Eye
 } from 'lucide-react';
 
 // Importer les composants
@@ -90,25 +91,26 @@ function App() {
   const defaultCVData = {
     personnel: {
       nomComplet: "HOUNGUE Jolidon",
-      titrePoste: "Développeur Full-Stack",
+      titrePoste: "Développeur Full-Stack & Mobile",
       email: "jolidonhoungue30@gmail.com",
       telephone: "+229 0151852420",
-      resume: "Développeur Full-Stack passionné par la création d'applications web innovantes. Actuellement en Licence Informatique de Gestion à l'Université de Parakou, je combine compétences techniques et connaissances en gestion pour concevoir des solutions adaptées aux besoins des utilisateurs.",
+      resume: "Développeur Full-Stack et Mobile passionné par la création d'applications web et mobiles innovantes. Actuellement en Licence Informatique de Gestion à l'Université de Parakou, je combine compétences techniques pour concevoir des solutions performantes et adaptées aux besoins des utilisateurs.",
       adresse: "Parakou, Bénin",
       siteWeb: "portfoliojolidon.vercel.app",
       linkedin: "linkedin.com/in/jolidonmissimahuhoungue",
       github: "github.com/joboy05",
-      photo: ""
+      photo: "",
+      permisDeConduire: "Permis B"
     },
     experiences: [
       {
         id: "1",
         entreprise: "Projet Personnel",
-        poste: "Développeur Full-Stack",
+        poste: "Développeur Full-Stack & Mobile",
         dateDebut: "2024",
         dateFin: "Présent",
         actuel: true,
-        description: "Conception d'un générateur de CV en React + Node.js + MongoDB\nGestion des templates dynamiques stockés en base de données\nAuthentification et gestion des utilisateurs"
+        description: "Développement de l'application mobile KlipSave en React Native\nConception d'un générateur de CV en React + Node.js + MongoDB\nGestion des templates dynamiques stockés en base de données"
       },
       {
         id: "2",
@@ -131,7 +133,9 @@ function App() {
       }
     ],
     competences: [
+      "React Native",
       "React.js",
+      "Expo",
       "Vue.js",
       "Tailwind CSS",
       "JavaScript",
@@ -154,7 +158,7 @@ function App() {
     ],
     centresInteret: [
       { id: "1", nom: "Cybersécurité" },
-      { id: "2", nom: "Développement d'applications web" },
+      { id: "2", nom: "Développement d'applications web & mobiles" },
       { id: "3", nom: "Veille technologique" },
       { id: "4", nom: "Mannequinat" }
     ],
@@ -186,6 +190,13 @@ function App() {
         description: "Site web responsive présentant mes projets et compétences",
         lien: "portfoliojolidon.vercel.app",
         technologies: ["React", "Tailwind CSS"]
+      },
+      {
+        id: "3",
+        nom: "KlipSave",
+        description: "Application mobile de téléchargement de vidéos",
+        lien: "",
+        technologies: ["React Native", "Expo", "FastAPI", "Python"]
       }
     ],
     parametres: {
@@ -201,7 +212,7 @@ function App() {
       try {
         const parsed = JSON.parse(donneesSauvegardees);
         return {
-          personnel: { ...defaultCVData.personnel, ...(parsed.personnel || {}) },
+          personnel: { ...defaultCVData.personnel, permisDeConduire: "", ...(parsed.personnel || {}) },
           experiences: parsed.experiences || defaultCVData.experiences,
           formations: parsed.formations || defaultCVData.formations,
           competences: parsed.competences || defaultCVData.competences,
@@ -234,6 +245,8 @@ function App() {
   const [estInstalle, setEstInstalle] = useState(false);
   const [chargement, setChargement] = useState(true);
   const [enTrainDeGenererPDF, setEnTrainDeGenererPDF] = useState(false);
+  const [mobileView, setMobileView] = useState('edit'); // 'edit' | 'preview'
+  const [activeTab, setActiveTab] = useState('profil'); // tab active dans l'éditeur
 
   const cvRef = useRef(null);
 
@@ -968,7 +981,7 @@ function App() {
           {data.competences.map((s, i) => (
             <span
               key={i}
-              className={`${styles.competence} inline-block whitespace-nowrap`}
+              className={`${styles.competence} inline-flex items-center justify-center whitespace-nowrap`}
               style={{
                 ...(!isSidebar ? {
                   backgroundColor: hexToRGBA(data.parametres.couleurPrincipale, 0.1),
@@ -977,7 +990,10 @@ function App() {
                 padding: '4px 12px',
                 borderRadius: '9999px',
                 margin: '2px',
-                display: 'inline-block',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                lineHeight: 'normal',
                 border: `1px solid ${hexToRGBA(data.parametres.couleurPrincipale, 0.05)}`
               }}
             >
@@ -1001,6 +1017,29 @@ function App() {
       </div>
     );
 
+    const renderInterests = () => data.centresInteret.length > 0 && (
+      <div className="mt-6 w-full">
+        <h4 className={sTitleClass} style={sTitleStyle}>Centres d'intérêt</h4>
+        <div className="flex flex-wrap gap-2 py-1">
+          {data.centresInteret.map(c => (
+            <span key={c.id} className="text-xs px-2 py-1 bg-gray-50 rounded border border-gray-100">{c.nom}</span>
+          ))}
+        </div>
+      </div>
+    );
+
+    const renderCertifications = () => data.certifications.length > 0 && (
+      <div className="mt-6 w-full">
+        <h4 className={sTitleClass} style={sTitleStyle}>Certifications</h4>
+        {data.certifications.map(c => (
+          <div key={c.id} className="mb-2">
+            <p className="text-xs font-bold">{c.nom}</p>
+            <p className="text-[10px] opacity-50">{c.organisme} • {c.date}</p>
+          </div>
+        ))}
+      </div>
+    );
+
     if (section === 'sidebar') {
       return (
         <div className="w-full">
@@ -1018,6 +1057,14 @@ function App() {
                   <span className="opacity-50 italic">{l.niveau}</span>
                 </div>
               ))}
+            </div>
+          )}
+          {renderInterests()}
+          {renderCertifications()}
+          {data.personnel.permisDeConduire && (
+            <div className="mt-6">
+              <h4 className={sTitleClass}>Permis</h4>
+              <p className="text-xs">{data.personnel.permisDeConduire}</p>
             </div>
           )}
         </div>
@@ -1054,6 +1101,24 @@ function App() {
           <>
             {renderEducation()}
             {renderSkills()}
+            {data.langues.length > 0 && (
+              <div className="mt-6">
+                <h4 className={styles.mainSousTitre} style={{ color: data.parametres.couleurPrincipale }}>Langues</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {data.langues.map(l => (
+                    <div key={l.id} className="text-xs"><span className="font-bold">{l.nom}</span> : {l.niveau}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {renderInterests()}
+            {renderCertifications()}
+            {data.personnel.permisDeConduire && (
+              <div className="mt-6">
+                <h4 className={styles.mainSousTitre} style={{ color: data.parametres.couleurPrincipale }}>Divers</h4>
+                <p className="text-xs"><span className="font-bold">Permis :</span> {data.personnel.permisDeConduire}</p>
+              </div>
+            )}
           </>
         )}
 
@@ -1132,14 +1197,17 @@ function App() {
                   {data.competences.map((s, i) => (
                     <span
                       key={i}
-                      className={`${styles.competence} inline-block whitespace-nowrap`}
+                      className={`${styles.competence} inline-flex items-center justify-center whitespace-nowrap`}
                       style={{
                         backgroundColor: hexToRGBA(data.parametres.couleurPrincipale, 0.1),
                         color: data.parametres.couleurPrincipale,
                         padding: '4px 12px',
                         borderRadius: '9999px',
                         margin: '2px',
-                        display: 'inline-block',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        lineHeight: 'normal',
                         border: `1px solid ${hexToRGBA(data.parametres.couleurPrincipale, 0.05)}`
                       }}
                     >
@@ -1158,6 +1226,44 @@ function App() {
                     <p className="text-[10px] text-gray-600">{f.ecole}</p>
                   </div>
                 ))}
+              </section>
+            )}
+            {data.langues.length > 0 && (
+              <section>
+                <h4 className={styles.sousTitre} style={{ color: data.parametres.couleurPrincipale }}>Langues</h4>
+                {data.langues.map(l => (
+                  <div key={l.id} className="flex justify-between text-xs mb-1">
+                    <span>{l.nom}</span>
+                    <span className="opacity-50 italic">{l.niveau}</span>
+                  </div>
+                ))}
+              </section>
+            )}
+            {data.centresInteret.length > 0 && (
+              <section>
+                <h4 className={styles.sousTitre} style={{ color: data.parametres.couleurPrincipale }}>Centres d'intérêt</h4>
+                <div className="flex flex-wrap gap-1">
+                  {data.centresInteret.map(c => (
+                    <span key={c.id} className="text-[10px] px-2 py-0.5 bg-gray-50 rounded border">{c.nom}</span>
+                  ))}
+                </div>
+              </section>
+            )}
+            {data.certifications.length > 0 && (
+              <section>
+                <h4 className={styles.sousTitre} style={{ color: data.parametres.couleurPrincipale }}>Certifications</h4>
+                {data.certifications.map(c => (
+                  <div key={c.id} className="mb-2">
+                    <p className="text-[10px] font-bold">{c.nom}</p>
+                    <p className="text-[9px] text-gray-500">{c.organisme}</p>
+                  </div>
+                ))}
+              </section>
+            )}
+            {data.personnel.permisDeConduire && (
+              <section>
+                <h4 className={styles.sousTitre} style={{ color: data.parametres.couleurPrincipale }}>Permis</h4>
+                <p className="text-[10px]">{data.personnel.permisDeConduire}</p>
               </section>
             )}
           </div>
@@ -1232,745 +1338,549 @@ function App() {
         transition={{ duration: 0.3 }}
       >
         {/* Header */}
-        <motion.header
-          className="bg-white border-b border-gray-200 sticky top-0 z-10"
-          initial={{ y: -50 }}
-          animate={{ y: 0 }}
-          transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        >
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                <Menu size={24} />
-                Générateur de CV
-              </h1>
-              <div className="flex items-center space-x-4">
+        <header className="bg-white border-b border-slate-100 sticky top-0 z-20 shadow-sm">
+          <div className="max-w-screen-xl mx-auto px-4">
+            {/* Top bar */}
+            <div className="flex items-center justify-between h-14">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-sm font-black shadow-sm"
+                  style={{ background: `linear-gradient(135deg, ${cvData.parametres.couleurPrincipale}, ${cvData.parametres.couleurPrincipale}aa)` }}>
+                  CV
+                </div>
+                <div>
+                  <span className="font-bold text-slate-800 text-sm">CV Builder</span>
+                  <span className="hidden sm:inline text-xs text-slate-400 ml-2">• {statutSauvegarde}</span>
+                </div>
+              </div>
 
-                {/* Optimiseur ATS */}
+              <div className="flex items-center gap-2">
+                {/* Statut online */}
+                <span className={`hidden sm:flex items-center gap-1.5 text-xs px-2 py-1 rounded-full ${
+                  estEnLigne ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${estEnLigne ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                  {estEnLigne ? 'En ligne' : 'Hors ligne'}
+                </span>
+
+                {/* ATS Optimizer */}
                 <ATSOptimizer cvData={cvData} />
 
-                {/* Bouton d'installation PWA */}
+                {/* Barre de complétion */}
+                <div className="hidden md:flex items-center gap-2">
+                  <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-700"
+                      style={{ width: `${completude}%`, backgroundColor: cvData.parametres.couleurPrincipale }} />
+                  </div>
+                  <span className="text-xs text-slate-500 font-medium">{completude}%</span>
+                </div>
+
+                {/* PDF Download */}
+                <button
+                  onClick={exporterPDF}
+                  disabled={enTrainDeGenererPDF}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-semibold rounded-xl shadow-sm hover:opacity-90 active:scale-95 transition-all disabled:opacity-60"
+                  style={{ background: `linear-gradient(135deg, ${cvData.parametres.couleurPrincipale}, ${cvData.parametres.couleurPrincipale}cc)` }}
+                >
+                  <Download size={13} />
+                  {enTrainDeGenererPDF ? 'Génération...' : 'Télécharger PDF'}
+                </button>
+
+                {/* PWA install */}
                 {!estInstalle && (
-                  <motion.button
+                  <button
                     onClick={() => document.dispatchEvent(new CustomEvent('show-pwa-prompt'))}
-                    className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm flex items-center gap-1 hover:bg-blue-200 transition-colors"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                    className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-xs font-medium hover:bg-slate-200 transition-all"
                   >
-                    <Download size={14} />
-                    Installer
-                  </motion.button>
+                    <Download size={12} /> Installer
+                  </button>
                 )}
               </div>
             </div>
+
+            {/* Mobile + Tablet toggle Éditer / Aperçu */}
+            <div className="flex lg:hidden gap-1 pb-2">
+              {[
+                { id: 'edit', label: 'Éditer', icon: <Pencil size={14} /> },
+                { id: 'preview', label: 'Aperçu', icon: <Eye size={14} /> }
+              ].map(v => (
+                <button key={v.id} onClick={() => setMobileView(v.id)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2 ${
+                    mobileView === v.id
+                      ? 'text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-500'
+                  }`}
+                  style={mobileView === v.id ? { backgroundColor: cvData.parametres.couleurPrincipale } : {}}
+                >
+                  {v.icon}
+                  {v.label}
+                </button>
+              ))}
+              {/* Mobile PDF */}
+              {mobileView === 'preview' && (
+                <button
+                  onClick={exporterPDF}
+                  disabled={enTrainDeGenererPDF}
+                  className="px-3 py-2 text-white text-xs font-semibold rounded-xl shadow-sm transition-all disabled:opacity-60"
+                  style={{ backgroundColor: cvData.parametres.couleurPrincipale }}
+                >
+                  <Download size={14} />
+                </button>
+              )}
+            </div>
           </div>
-        </motion.header>
+        </header>
 
         {/* Contenu principal */}
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex gap-6">
-            {/* Côté gauche - Formulaire */}
-            <motion.div
-              className="w-1/2 bg-white rounded-lg shadow-sm p-6 max-h-[calc(100vh-120px)] overflow-y-auto"
-              initial={{ x: -50, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.1 }}
+        <div className="max-w-screen-xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
+            {/* PANNEAU GAUCHE - Éditeur */}
+            <div
+              className={`w-full lg:w-1/2 bg-white rounded-2xl shadow-sm border border-slate-100
+                max-h-screen lg:max-h-[calc(100vh-110px)] overflow-y-auto
+                ${mobileView === 'preview' ? 'hidden lg:flex lg:flex-col' : 'flex flex-col'}`}
             >
-              <h2 className="text-lg font-semibold text-gray-700 mb-4 sticky top-0 bg-white py-2 flex items-center gap-2">
-                <AlertCircle size={18} />
-                Complétion du profil
-              </h2>
-
-              {/* Barre de progression */}
-              <div className="mb-6">
-                <div className="flex justify-between text-sm text-gray-600 mb-1">
-                  <span>
-                    {completude < 100
-                      ? `Encore ${Math.ceil((100 - completude) / 10)} sections à compléter.`
-                      : "Parfait ! Votre CV est complet."}
-                  </span>
-                  <span className="font-medium">{completude}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <motion.div
-                    className="rounded-full h-2 transition-all duration-300"
-                    style={{ backgroundColor: cvData.parametres.couleurPrincipale }}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${completude}%` }}
-                    transition={{ duration: 0.5, ease: "easeOut" }}
-                  />
-                </div>
-              </div>
-
-              {/* Sélecteur de template avec tous les templates */}
-              <div className="mb-6">
-                <h3 className="font-medium text-gray-700 mb-3">Choisir un template</h3>
-                <div className="grid grid-cols-2 gap-2">
+              {/* Onglets de navigation */}
+              <div className="sticky top-0 bg-white z-10 px-4 pt-4 pb-0 border-b border-slate-100">
+                <div className="flex gap-1 overflow-x-auto pb-0 scrollbar-hide">
                   {[
-                    { nom: 'classique', label: 'Classique', icon: <FileText size={16} /> },
-                    { nom: 'moderne', label: 'Moderne', icon: <Star size={16} /> },
-                    { nom: 'professionnel', label: 'Pro', icon: <BriefcaseIcon size={16} /> },
-                    { nom: 'sidebar_left', label: 'Sidebar G.', icon: <Layout size={16} className="rotate-90" /> },
-                    { nom: 'sidebar_right', label: 'Sidebar D.', icon: <Layout size={16} className="-rotate-90" /> },
-                    { nom: 'fancy_header', label: 'Élégant', icon: <Sparkles size={16} /> },
-                    { nom: 'developpeur', label: 'Dev', icon: <Code size={16} /> },
-                    { nom: 'creatif', label: 'Créatif', icon: <Palette size={16} /> },
-                    { nom: 'minimal', label: 'Minimal', icon: <Minus size={16} /> }
-                  ].map((template) => (
-                    <motion.button
-                      key={template.nom}
-                      onClick={() => changerTemplate(template.nom)}
-                      className={`px-3 py-2 rounded-md capitalize transition-all flex items-center gap-2 ${cvData.parametres.template === template.nom
-                        ? 'text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                      style={cvData.parametres.template === template.nom ? { backgroundColor: cvData.parametres.couleurPrincipale } : {}}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
+                    { id: 'apparence', icon: <Palette size={16} />, full: 'Apparence' },
+                    { id: 'profil',    icon: <User size={16} />, full: 'Profil' },
+                    { id: 'experience', icon: <Briefcase size={16} />, full: 'Expériences' },
+                    { id: 'formation',  icon: <GraduationCap size={16} />, full: 'Formations' },
+                    { id: 'skills',     icon: <Zap size={16} />, full: 'Compétences' },
+                    { id: 'langues',    icon: <Languages size={16} />, full: 'Langues' },
+                    { id: 'autres',     icon: <Folder size={16} />, full: 'Autres' },
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold rounded-t-lg whitespace-nowrap transition-all border-b-2 ${
+                        activeTab === tab.id
+                          ? 'border-b-2 bg-slate-50'
+                          : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'
+                      }`}
+                      style={activeTab === tab.id ? { borderBottomColor: cvData.parametres.couleurPrincipale, color: cvData.parametres.couleurPrincipale } : {}}
                     >
-                      <span className="text-gray-500" style={cvData.parametres.template === template.nom ? { color: 'white' } : {}}>
-                        {template.icon}
-                      </span>
-                      <span>{template.label}</span>
-                    </motion.button>
+                      {tab.icon}
+                      <span className="hidden md:inline">{tab.full}</span>
+                    </button>
                   ))}
                 </div>
               </div>
 
-              {/* Sélecteur de couleur */}
-              <div className="mb-6">
-                <h3 className="font-medium text-gray-700 mb-3">Couleur principale</h3>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="color"
-                    value={cvData.parametres.couleurPrincipale}
-                    onChange={(e) => changerCouleurPrincipale(e.target.value)}
-                    className="w-10 h-10 rounded cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={cvData.parametres.couleurPrincipale}
-                    onChange={(e) => changerCouleurPrincipale(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
-                    placeholder="#2563eb"
-                  />
-                </div>
-              </div>
+              {/* Contenu des onglets */}
+              <div className="p-4 flex-1">
+              {/* === ONGLET APPARENCE === */}
+              {activeTab === 'apparence' && (
+                <div className="animate-fadeIn">
+                  {/* Barre de complétion */}
+                  <div className="mb-5 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <div className="flex justify-between text-xs text-slate-600 mb-2">
+                      <span className="font-medium flex items-center gap-1.5">
+                        {completude < 100 ? (
+                          <>
+                            <Sparkles size={13} className="text-amber-500" />
+                            Encore {100 - completude}% à compléter
+                          </>
+                        ) : (
+                          <>
+                            <Check size={13} className="text-emerald-500" />
+                            CV complet !
+                          </>
+                        )}
+                      </span>
+                      <span className="font-bold" style={{ color: cvData.parametres.couleurPrincipale }}>{completude}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-2">
+                      <div className="h-2 rounded-full transition-all duration-700"
+                        style={{ width: `${completude}%`, backgroundColor: cvData.parametres.couleurPrincipale }} />
+                    </div>
+                  </div>
 
-              {/* Section Informations personnelles */}
+              {/* Sélecteur de template avec tous les templates */}
               <div className="mb-6">
-                <h3 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
-                  <User size={18} /> Informations personnelles
-                </h3>
-                <div className="space-y-3">
-                  {/* Photo (optionnel) */}
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1">Photo de profil</label>
-                    <div className="flex items-center gap-3">
-                      {cvData.personnel.photo && (
-                        <div className="relative w-12 h-12 rounded-full overflow-hidden border">
-                          <img src={cvData.personnel.photo} alt="Preview" className="w-full h-full object-cover" />
-                        </div>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handlePhotoChange}
-                        className="hidden"
-                        id="photo-upload"
-                      />
-                      <label
-                        htmlFor="photo-upload"
-                        className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md text-sm cursor-pointer hover:bg-gray-200 border border-gray-300"
+                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">Template</h3>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { nom: 'classique', label: 'Classique', icon: <FileText size={14} /> },
+                      { nom: 'moderne', label: 'Moderne', icon: <Star size={14} /> },
+                      { nom: 'professionnel', label: 'Pro', icon: <BriefcaseIcon size={14} /> },
+                      { nom: 'sidebar_left', label: 'Sidebar G.', icon: <Layout size={14} className="rotate-90" /> },
+                      { nom: 'sidebar_right', label: 'Sidebar D.', icon: <Layout size={14} className="-rotate-90" /> },
+                      { nom: 'fancy_header', label: 'Élégant', icon: <Sparkles size={14} /> },
+                      { nom: 'developpeur', label: 'Dev', icon: <Code size={14} /> },
+                      { nom: 'creatif', label: 'Créatif', icon: <Palette size={14} /> },
+                      { nom: 'minimal', label: 'Minimal', icon: <Minus size={14} /> }
+                    ].map((template) => (
+                      <button
+                        key={template.nom}
+                        onClick={() => changerTemplate(template.nom)}
+                        className={`px-2 py-2.5 rounded-xl text-xs font-semibold transition-all flex flex-col items-center gap-1 border ${
+                          cvData.parametres.template === template.nom
+                            ? 'text-white border-transparent shadow-sm'
+                            : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border-slate-200'
+                        }`}
+                        style={cvData.parametres.template === template.nom ? { backgroundColor: cvData.parametres.couleurPrincipale } : {}}
                       >
-                        {cvData.personnel.photo ? 'Changer la photo' : 'Choisir une photo'}
+                        <span className={cvData.parametres.template === template.nom ? 'text-white' : 'text-slate-400'}>{template.icon}</span>
+                        <span>{template.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sélecteur de couleur */}
+                <div className="mt-5">
+                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">Couleur principale</h3>
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <input
+                        type="color"
+                        value={cvData.parametres.couleurPrincipale}
+                        onChange={(e) => changerCouleurPrincipale(e.target.value)}
+                        className="w-12 h-12 rounded-xl cursor-pointer border-0 p-0.5"
+                        style={{ background: cvData.parametres.couleurPrincipale }}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <input
+                        type="text"
+                        value={cvData.parametres.couleurPrincipale}
+                        onChange={(e) => changerCouleurPrincipale(e.target.value)}
+                        className="input-field font-mono text-sm"
+                        placeholder="#6366f1"
+                      />
+                    </div>
+                    <div className="flex gap-1.5">
+                      {['#6366f1','#2563eb','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#0f172a'].map(c => (
+                        <button key={c} onClick={() => changerCouleurPrincipale(c)}
+                          className="w-6 h-6 rounded-full border-2 transition-all hover:scale-110"
+                          style={{ backgroundColor: c, borderColor: cvData.parametres.couleurPrincipale === c ? 'white' : 'transparent',
+                            outline: cvData.parametres.couleurPrincipale === c ? `2px solid ${c}` : 'none' }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Export/Import buttons */}
+                <div className="flex gap-2 mt-5">
+                    <button onClick={reinitialiserFormulaire} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-200 transition-all">
+                      <Trash2 size={13} /> Réinit.
+                    </button>
+                    <button onClick={() => document.getElementById('fileInput').click()} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-200 transition-all">
+                      <Folder size={13} /> Importer
+                    </button>
+                    <input type="file" id="fileInput" accept=".json" onChange={importerJSON} className="hidden" />
+                    <button onClick={exporterJSON} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-200 transition-all">
+                      <Download size={13} /> Exporter
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* === ONGLET PROFIL === */}
+              {activeTab === 'profil' && (
+                <div className="animate-fadeIn space-y-4">
+                  {/* Photo */}
+                  <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl">
+                    <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-white shadow-md bg-slate-200 flex items-center justify-center flex-shrink-0"
+                      style={{ borderColor: cvData.parametres.couleurPrincipale + '40' }}>
+                      {cvData.personnel.photo
+                        ? <img src={cvData.personnel.photo} className="w-full h-full object-cover" />
+                        : <User size={28} className="text-slate-400" />}
+                    </div>
+                    <div>
+                      <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" id="photo-upload" />
+                      <label htmlFor="photo-upload" className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl transition-all text-white"
+                        style={{ backgroundColor: cvData.parametres.couleurPrincipale }}>
+                        <Pencil size={12} /> {cvData.personnel.photo ? 'Changer' : 'Ajouter photo'}
                       </label>
                       {cvData.personnel.photo && (
-                        <button
-                          onClick={() => handleChangementPersonnel('photo', '')}
-                          className="text-red-500 text-sm hover:underline"
-                        >
-                          Supprimer
-                        </button>
+                        <button onClick={() => handleChangementPersonnel('photo', '')} className="ml-2 text-xs text-red-400 hover:text-red-600">Supprimer</button>
                       )}
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1">Nom complet</label>
-                    <input
-                      type="text"
-                      value={cvData.personnel.nomComplet || ''}
-                      onChange={(e) => handleChangementPersonnel('nomComplet', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="Votre nom complet"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1">Titre du poste</label>
-                    <input
-                      type="text"
-                      value={cvData.personnel.titrePoste || ''}
-                      onChange={(e) => handleChangementPersonnel('titrePoste', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="Développeur Full-Stack"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1">Résumé professionnel</label>
-                    <textarea
-                      value={cvData.personnel.resume || ''}
-                      onChange={(e) => handleChangementPersonnel('resume', e.target.value)}
-                      rows="3"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="Décrivez votre profil en quelques phrases..."
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
-                        <Mail size={14} /> Email
-                      </label>
-                      <input
-                        type="email"
-                        value={cvData.personnel.email || ''}
-                        onChange={(e) => handleChangementPersonnel('email', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        placeholder="email@exemple.com"
-                      />
+                      <label className="label">Nom complet</label>
+                      <input type="text" value={cvData.personnel.nomComplet || ''} onChange={(e) => handleChangementPersonnel('nomComplet', e.target.value)} className="input-field" placeholder="Votre nom complet" />
                     </div>
                     <div>
-                      <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
-                        <Phone size={14} /> Téléphone
-                      </label>
-                      <input
-                        type="tel"
-                        value={cvData.personnel.telephone || ''}
-                        onChange={(e) => handleChangementPersonnel('telephone', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        placeholder="+229 01 51 85 24 20"
-                      />
+                      <label className="label">Titre / Poste</label>
+                      <input type="text" value={cvData.personnel.titrePoste || ''} onChange={(e) => handleChangementPersonnel('titrePoste', e.target.value)} className="input-field" placeholder="Développeur Full-Stack" />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
-                      <MapPin size={14} /> Adresse
-                    </label>
-                    <input
-                      type="text"
-                      value={cvData.personnel.adresse || ''}
-                      onChange={(e) => handleChangementPersonnel('adresse', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="Ville, Pays"
-                    />
+                    <label className="label">Résumé professionnel</label>
+                    <textarea value={cvData.personnel.resume || ''} onChange={(e) => handleChangementPersonnel('resume', e.target.value)} rows={3} className="input-field resize-none" placeholder="Décrivez votre profil en quelques phrases..." />
                   </div>
 
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
-                      <Globe size={14} /> Site web / Portfolio
-                    </label>
-                    <input
-                      type="text"
-                      value={cvData.personnel.siteWeb || ''}
-                      onChange={(e) => handleChangementPersonnel('siteWeb', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="portfoliojolidon.vercel.app"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
-                      <Linkedin size={14} /> LinkedIn
-                    </label>
-                    <input
-                      type="text"
-                      value={cvData.personnel.linkedin || ''}
-                      onChange={(e) => handleChangementPersonnel('linkedin', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="linkedin.com/in/votreprofil"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1 flex items-center gap-1">
-                      <Github size={14} /> GitHub
-                    </label>
-                    <input
-                      type="text"
-                      value={cvData.personnel.github || ''}
-                      onChange={(e) => handleChangementPersonnel('github', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="github.com/joboy05"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Section Expériences avec Drag & Drop */}
-              <div className="mb-6">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
-                    <Briefcase size={18} /> Expériences
-                  </h3>
-                  <span className="text-sm text-gray-500">{cvData.experiences.length} élément(s)</span>
-                </div>
-
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEndExperiences}
-                >
-                  <SortableContext
-                    items={cvData.experiences.map(exp => exp.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-4">
-                      <AnimatePresence>
-                        {cvData.experiences.map((exp) => (
-                          <motion.div
-                            key={exp.id}
-                            initial={{ opacity: 0, y: -20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, x: -100 }}
-                            transition={{ duration: 0.2 }}
-                          >
-                            <DraggableItem
-                              id={exp.id}
-                              onEdit={() => setExperienceEnEdition(exp)}
-                              onDelete={() => supprimerExperience(exp.id)}
-                            >
-                              <div className="font-medium">{exp.poste}</div>
-                              <div className="text-sm text-gray-600">
-                                {exp.entreprise} • {exp.dateDebut} - {exp.dateFin}
-                              </div>
-                            </DraggableItem>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="label flex items-center gap-1"><Mail size={12} /> Email</label>
+                      <input type="email" value={cvData.personnel.email || ''} onChange={(e) => handleChangementPersonnel('email', e.target.value)} className="input-field" placeholder="email@exemple.com" />
                     </div>
-                  </SortableContext>
-                </DndContext>
+                    <div>
+                      <label className="label flex items-center gap-1"><Phone size={12} /> Téléphone</label>
+                      <input type="tel" value={cvData.personnel.telephone || ''} onChange={(e) => handleChangementPersonnel('telephone', e.target.value)} className="input-field" placeholder="+229 01 XX XX XX" />
+                    </div>
+                  </div>
 
-                <motion.button
-                  onClick={() => setExperienceEnEdition({})}
-                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
-                  style={{ color: cvData.parametres.couleurPrincipale }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Plus size={16} /> Ajouter une expérience
-                </motion.button>
-              </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="label flex items-center gap-1"><MapPin size={12} /> Adresse</label>
+                      <input type="text" value={cvData.personnel.adresse || ''} onChange={(e) => handleChangementPersonnel('adresse', e.target.value)} className="input-field" placeholder="Ville, Pays" />
+                    </div>
+                    <div>
+                      <label className="label flex items-center gap-1"><Target size={12} /> Permis</label>
+                      <input type="text" value={cvData.personnel.permisDeConduire || ''} onChange={(e) => handleChangementPersonnel('permisDeConduire', e.target.value)} className="input-field" placeholder="Permis B" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="label flex items-center gap-1"><Globe size={12} /> Site web</label>
+                      <input type="text" value={cvData.personnel.siteWeb || ''} onChange={(e) => handleChangementPersonnel('siteWeb', e.target.value)} className="input-field" placeholder="portfolio.vercel.app" />
+                    </div>
+                    <div>
+                      <label className="label flex items-center gap-1"><Linkedin size={12} /> LinkedIn</label>
+                      <input type="text" value={cvData.personnel.linkedin || ''} onChange={(e) => handleChangementPersonnel('linkedin', e.target.value)} className="input-field" placeholder="linkedin.com/in/profil" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label flex items-center gap-1"><Github size={12} /> GitHub</label>
+                    <input type="text" value={cvData.personnel.github || ''} onChange={(e) => handleChangementPersonnel('github', e.target.value)} className="input-field" placeholder="github.com/profil" />
+                  </div>
+                </div>
+              )}
+
+
+
+              {/* === ONGLET EXPERIENCES === */}
+              {activeTab === 'experience' && (
+                <div className="animate-fadeIn">
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEndExperiences}>
+                    <SortableContext items={cvData.experiences.map(exp => exp.id)} strategy={verticalListSortingStrategy}>
+                      <div className="space-y-3">
+                        <AnimatePresence>
+                          {cvData.experiences.map((exp) => (
+                            <motion.div key={exp.id} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -80 }} transition={{ duration: 0.2 }}>
+                              <DraggableItem id={exp.id} onEdit={() => setExperienceEnEdition(exp)} onDelete={() => supprimerExperience(exp.id)}>
+                                <div className="font-semibold text-sm text-slate-800">{exp.poste}</div>
+                                <div className="text-xs text-slate-500 mt-0.5">{exp.entreprise} • {exp.dateDebut} – {exp.dateFin}</div>
+                              </DraggableItem>
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                  <button onClick={() => setExperienceEnEdition({})} className="mt-4 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                    style={{ backgroundColor: cvData.parametres.couleurPrincipale }}>
+                    <Plus size={15} /> Ajouter une expérience
+                  </button>
+                </div>
+              )}
+
+
 
               {/* Section Formations avec Drag & Drop */}
-              <div className="mb-6">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
-                    <GraduationCap size={18} /> Formations
-                  </h3>
-                  <span className="text-sm text-gray-500">{cvData.formations.length} élément(s)</span>
+
+              {/* === ONGLET FORMATIONS === */}
+              {activeTab === 'formation' && (
+                <div className="animate-fadeIn">
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEndFormations}>
+                    <SortableContext items={cvData.formations.map(f => f.id)} strategy={verticalListSortingStrategy}>
+                      <div className="space-y-3">
+                        <AnimatePresence>
+                          {cvData.formations.map((formation) => (
+                            <motion.div key={formation.id} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -80 }} transition={{ duration: 0.2 }}>
+                              <DraggableItem id={formation.id} onEdit={() => setFormationEnEdition(formation)} onDelete={() => supprimerFormation(formation.id)}>
+                                <div className="font-semibold text-sm text-slate-800">{formation.diplome}</div>
+                                <div className="text-xs text-slate-500 mt-0.5">{formation.ecole} • {formation.dateDebut} – {formation.dateFin}</div>
+                              </DraggableItem>
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                  <button onClick={() => setFormationEnEdition({})} className="mt-4 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                    style={{ backgroundColor: cvData.parametres.couleurPrincipale }}>
+                    <Plus size={15} /> Ajouter une formation
+                  </button>
                 </div>
-
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEndFormations}
-                >
-                  <SortableContext
-                    items={cvData.formations.map(f => f.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-4">
-                      <AnimatePresence>
-                        {cvData.formations.map((formation) => (
-                          <motion.div
-                            key={formation.id}
-                            initial={{ opacity: 0, y: -20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, x: -100 }}
-                            transition={{ duration: 0.2 }}
-                          >
-                            <DraggableItem
-                              id={formation.id}
-                              onEdit={() => setFormationEnEdition(formation)}
-                              onDelete={() => supprimerFormation(formation.id)}
-                            >
-                              <div className="font-medium">{formation.diplome}</div>
-                              <div className="text-sm text-gray-600">
-                                {formation.ecole} • {formation.dateDebut} - {formation.dateFin}
-                              </div>
-                            </DraggableItem>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                    </div>
-                  </SortableContext>
-                </DndContext>
-
-                <motion.button
-                  onClick={() => setFormationEnEdition({})}
-                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
-                  style={{ color: cvData.parametres.couleurPrincipale }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Plus size={16} /> Ajouter une formation
-                </motion.button>
-              </div>
-
-              {/* Section Compétences avec animations et IA */}
-              <div className="mb-6">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
-                    <Zap size={18} /> Compétences
-                  </h3>
-                  <SkillSuggestions
-                    titre={cvData.personnel.titrePoste}
-                    onAddSkill={ajouterCompetenceDepuisSuggestion}
-                  />
-                </div>
-
-                <motion.div
-                  className="flex flex-wrap gap-2 mb-3"
-                  variants={{
-                    hidden: { opacity: 0 },
-                    show: {
-                      opacity: 1,
-                      transition: { staggerChildren: 0.05 }
-                    }
-                  }}
-                  initial="hidden"
-                  animate="show"
-                >
-                  <AnimatePresence>
-                    {cvData.competences.map((competence, index) => (
-                      <motion.span
-                        key={index}
-                        variants={{
-                          hidden: { opacity: 0, scale: 0.8 },
-                          show: { opacity: 1, scale: 1 }
-                        }}
-                        exit={{ opacity: 0, scale: 0.8 }}
-                        className="px-3 py-1 bg-gray-100 rounded-full text-sm flex items-center gap-1 group"
-                      >
-                        {competence}
-                        <button
-                          onClick={() => supprimerCompetence(index)}
-                          className="text-gray-500 hover:text-red-500"
-                          title="Supprimer"
-                        >
-                          <X size={14} />
-                        </button>
-                      </motion.span>
-                    ))}
-                  </AnimatePresence>
-                </motion.div>
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={nouvelleCompetence}
-                    onChange={(e) => setNouvelleCompetence(e.target.value)}
-                    onKeyPress={handleToucheEntree}
-                    placeholder="Ajouter une compétence (ex: React.js)"
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
-                  />
-                  <motion.button
-                    onClick={ajouterCompetence}
-                    className="px-4 py-2 text-white rounded-md hover:opacity-90 text-sm flex items-center gap-1"
-                    style={{ backgroundColor: cvData.parametres.couleurPrincipale }}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Plus size={14} /> Ajouter
-                  </motion.button>
-                </div>
-              </div>
-
-              {/* Section Langues avec Drag & Drop */}
-              <div className="mb-6">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
-                    <Languages size={18} /> Langues
-                  </h3>
-                  <span className="text-sm text-gray-500">{cvData.langues.length} élément(s)</span>
-                </div>
-
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEndLangues}
-                >
-                  <SortableContext
-                    items={cvData.langues.map(l => l.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-4">
-                      <AnimatePresence>
-                        {cvData.langues.map((langue) => (
-                          <motion.div
-                            key={langue.id}
-                            initial={{ opacity: 0, y: -20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, x: -100 }}
-                            transition={{ duration: 0.2 }}
-                          >
-                            <DraggableItem
-                              id={langue.id}
-                              onEdit={() => setLangueEnEdition(langue)}
-                              onDelete={() => supprimerLangue(langue.id)}
-                            >
-                              <div className="font-medium">{langue.nom}</div>
-                              <div className="text-sm text-gray-600">{langue.niveau}</div>
-                            </DraggableItem>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                    </div>
-                  </SortableContext>
-                </DndContext>
-
-                <motion.button
-                  onClick={() => setLangueEnEdition({})}
-                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
-                  style={{ color: cvData.parametres.couleurPrincipale }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Plus size={16} /> Ajouter une langue
-                </motion.button>
-              </div>
-
-              {/* Section Centres d'intérêt avec Drag & Drop */}
-              <div className="mb-6">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
-                    <Heart size={18} /> Centres d'intérêt
-                  </h3>
-                  <span className="text-sm text-gray-500">{cvData.centresInteret.length} élément(s)</span>
-                </div>
-
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEndCentresInteret}
-                >
-                  <SortableContext
-                    items={cvData.centresInteret.map(c => c.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-4">
-                      <AnimatePresence>
-                        {cvData.centresInteret.map((centre) => (
-                          <motion.div
-                            key={centre.id}
-                            initial={{ opacity: 0, y: -20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, x: -100 }}
-                            transition={{ duration: 0.2 }}
-                          >
-                            <DraggableItem
-                              id={centre.id}
-                              onEdit={() => setCentreInteretEnEdition(centre)}
-                              onDelete={() => supprimerCentreInteret(centre.id)}
-                            >
-                              <div className="font-medium">{centre.nom}</div>
-                            </DraggableItem>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                    </div>
-                  </SortableContext>
-                </DndContext>
-
-                <motion.button
-                  onClick={() => setCentreInteretEnEdition({})}
-                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
-                  style={{ color: cvData.parametres.couleurPrincipale }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Plus size={16} /> Ajouter un centre d'intérêt
-                </motion.button>
-              </div>
-
-              {/* Section Certifications avec Drag & Drop */}
-              <div className="mb-6">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
-                    <Award size={18} /> Certifications
-                  </h3>
-                  <span className="text-sm text-gray-500">{cvData.certifications.length} élément(s)</span>
-                </div>
-
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEndCertifications}
-                >
-                  <SortableContext
-                    items={cvData.certifications.map(c => c.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-4">
-                      <AnimatePresence>
-                        {cvData.certifications.map((cert) => (
-                          <motion.div
-                            key={cert.id}
-                            initial={{ opacity: 0, y: -20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, x: -100 }}
-                            transition={{ duration: 0.2 }}
-                          >
-                            <DraggableItem
-                              id={cert.id}
-                              onEdit={() => setCertificationEnEdition(cert)}
-                              onDelete={() => supprimerCertification(cert.id)}
-                            >
-                              <div className="font-medium">{cert.nom}</div>
-                              <div className="text-sm text-gray-600">
-                                {cert.organisme} • {cert.date}
-                              </div>
-                            </DraggableItem>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                    </div>
-                  </SortableContext>
-                </DndContext>
-
-                <motion.button
-                  onClick={() => setCertificationEnEdition({})}
-                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
-                  style={{ color: cvData.parametres.couleurPrincipale }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Plus size={16} /> Ajouter une certification
-                </motion.button>
-              </div>
-
-              {/* Section Projets avec Drag & Drop */}
-              <div className="mb-6">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-medium text-gray-700 flex items-center gap-2">
-                    <Folder size={18} /> Projets
-                  </h3>
-                  <span className="text-sm text-gray-500">{cvData.projets.length} élément(s)</span>
-                </div>
-
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEndProjets}
-                >
-                  <SortableContext
-                    items={cvData.projets.map(p => p.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-4">
-                      <AnimatePresence>
-                        {cvData.projets.map((projet) => (
-                          <motion.div
-                            key={projet.id}
-                            initial={{ opacity: 0, y: -20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, x: -100 }}
-                            transition={{ duration: 0.2 }}
-                          >
-                            <DraggableItem
-                              id={projet.id}
-                              onEdit={() => setProjetEnEdition(projet)}
-                              onDelete={() => supprimerProjet(projet.id)}
-                            >
-                              <div className="font-medium">{projet.nom}</div>
-                              <div className="text-sm text-gray-600">{projet.description}</div>
-                            </DraggableItem>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                    </div>
-                  </SortableContext>
-                </DndContext>
-
-                <motion.button
-                  onClick={() => setProjetEnEdition({})}
-                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1"
-                  style={{ color: cvData.parametres.couleurPrincipale }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Plus size={16} /> Ajouter un projet
-                </motion.button>
-              </div>
-
-              {/* Boutons d'action */}
-              <div className="flex space-x-3 mt-6 sticky bottom-0 bg-white py-4 border-t">
-                <motion.button
-                  onClick={reinitialiserFormulaire}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 flex items-center gap-2"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Trash2 size={16} /> Réinitialiser
-                </motion.button>
-
-                <div className="relative">
-                  <motion.button
-                    onClick={() => document.getElementById('fileInput').click()}
-                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 flex items-center gap-2"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    <Folder size={16} /> Importer JSON
-                  </motion.button>
-                  <input
-                    type="file"
-                    id="fileInput"
-                    accept=".json"
-                    onChange={importerJSON}
-                    className="hidden"
-                  />
-                </div>
-
-                <motion.button
-                  onClick={exporterJSON}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 flex items-center gap-2"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Download size={16} /> Exporter JSON
-                </motion.button>
-
-                <motion.button
-                  className="px-4 py-2 text-white rounded-md hover:opacity-90 ml-auto flex items-center gap-2"
-                  style={{ backgroundColor: cvData.parametres.couleurPrincipale }}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Check size={16} /> Sauvegarder
-                </motion.button>
-              </div>
-
-              {/* Message d'erreur import */}
-              {erreurImport && (
-                <motion.div
-                  className="mt-3 text-sm text-red-600 flex items-center gap-1"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                >
-                  <AlertCircle size={14} /> ⚠️ {erreurImport}
-                </motion.div>
               )}
-            </motion.div>
+
+              {/* === ONGLET COMPETENCES === */}
+              {activeTab === 'skills' && (
+                <div className="animate-fadeIn">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">{cvData.competences.length} compétence(s)</span>
+                    <SkillSuggestions titre={cvData.personnel.titrePoste} onAddSkill={ajouterCompetenceDepuisSuggestion} />
+                  </div>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <AnimatePresence>
+                      {cvData.competences.map((competence, index) => (
+                        <motion.span key={index} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
+                          style={{ backgroundColor: hexToRGBA(cvData.parametres.couleurPrincipale, 0.08), color: cvData.parametres.couleurPrincipale, borderColor: hexToRGBA(cvData.parametres.couleurPrincipale, 0.2) }}>
+                          {competence}
+                          <button onClick={() => supprimerCompetence(index)} className="opacity-60 hover:opacity-100 hover:text-red-500 transition-all">
+                            <X size={12} />
+                          </button>
+                        </motion.span>
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="text" value={nouvelleCompetence} onChange={(e) => setNouvelleCompetence(e.target.value)}
+                      onKeyPress={handleToucheEntree} placeholder="Ex: React.js, Python..." className="input-field flex-1" />
+                    <button onClick={ajouterCompetence} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90 active:scale-95 transition-all"
+                      style={{ backgroundColor: cvData.parametres.couleurPrincipale }}>
+                      <Plus size={14} /> Ajouter
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* === ONGLET LANGUES === */}
+              {activeTab === 'langues' && (
+                <div className="animate-fadeIn">
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEndLangues}>
+                    <SortableContext items={cvData.langues.map(l => l.id)} strategy={verticalListSortingStrategy}>
+                      <div className="space-y-3">
+                        <AnimatePresence>
+                          {cvData.langues.map((langue) => (
+                            <motion.div key={langue.id} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -80 }} transition={{ duration: 0.2 }}>
+                              <DraggableItem id={langue.id} onEdit={() => setLangueEnEdition(langue)} onDelete={() => supprimerLangue(langue.id)}>
+                                <div className="font-semibold text-sm text-slate-800">{langue.nom}</div>
+                                <div className="text-xs text-slate-500">{langue.niveau}</div>
+                              </DraggableItem>
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                  <button onClick={() => setLangueEnEdition({})} className="mt-4 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                    style={{ backgroundColor: cvData.parametres.couleurPrincipale }}>
+                    <Plus size={15} /> Ajouter une langue
+                  </button>
+                </div>
+              )}
+
+              {/* === ONGLET AUTRES (Certifications + Centres intérêt + Projets) === */}
+              {activeTab === 'autres' && (
+                <div className="animate-fadeIn space-y-8">
+
+                  {/* Certifications */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Award size={16} style={{ color: cvData.parametres.couleurPrincipale }} />
+                      <h3 className="text-sm font-bold text-slate-700">Certifications</h3>
+                      <span className="ml-auto text-xs text-slate-400">{cvData.certifications.length}</span>
+                    </div>
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEndCertifications}>
+                      <SortableContext items={cvData.certifications.map(c => c.id)} strategy={verticalListSortingStrategy}>
+                        <div className="space-y-2">
+                          <AnimatePresence>
+                            {cvData.certifications.map((cert) => (
+                              <motion.div key={cert.id} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -80 }} transition={{ duration: 0.2 }}>
+                                <DraggableItem id={cert.id} onEdit={() => setCertificationEnEdition(cert)} onDelete={() => supprimerCertification(cert.id)}>
+                                  <div className="font-semibold text-sm text-slate-800">{cert.nom}</div>
+                                  <div className="text-xs text-slate-500">{cert.organisme} • {cert.date}</div>
+                                </DraggableItem>
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                    <button onClick={() => setCertificationEnEdition({})} className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border-2 border-dashed border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-600 transition-all w-full justify-center">
+                      <Plus size={13} /> Ajouter une certification
+                    </button>
+                  </div>
+
+                  {/* Centres d'intérêt */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Heart size={16} style={{ color: cvData.parametres.couleurPrincipale }} />
+                      <h3 className="text-sm font-bold text-slate-700">Centres d'intérêt</h3>
+                      <span className="ml-auto text-xs text-slate-400">{cvData.centresInteret.length}</span>
+                    </div>
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEndCentresInteret}>
+                      <SortableContext items={cvData.centresInteret.map(c => c.id)} strategy={verticalListSortingStrategy}>
+                        <div className="space-y-2">
+                          <AnimatePresence>
+                            {cvData.centresInteret.map((centre) => (
+                              <motion.div key={centre.id} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -80 }} transition={{ duration: 0.2 }}>
+                                <DraggableItem id={centre.id} onEdit={() => setCentreInteretEnEdition(centre)} onDelete={() => supprimerCentreInteret(centre.id)}>
+                                  <div className="font-semibold text-sm text-slate-800">{centre.nom}</div>
+                                </DraggableItem>
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                    <button onClick={() => setCentreInteretEnEdition({})} className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border-2 border-dashed border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-600 transition-all w-full justify-center">
+                      <Plus size={13} /> Ajouter un centre d'intérêt
+                    </button>
+                  </div>
+
+                  {/* Projets */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Folder size={16} style={{ color: cvData.parametres.couleurPrincipale }} />
+                      <h3 className="text-sm font-bold text-slate-700">Projets</h3>
+                      <span className="ml-auto text-xs text-slate-400">{cvData.projets.length}</span>
+                    </div>
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEndProjets}>
+                      <SortableContext items={cvData.projets.map(p => p.id)} strategy={verticalListSortingStrategy}>
+                        <div className="space-y-2">
+                          <AnimatePresence>
+                            {cvData.projets.map((projet) => (
+                              <motion.div key={projet.id} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -80 }} transition={{ duration: 0.2 }}>
+                                <DraggableItem id={projet.id} onEdit={() => setProjetEnEdition(projet)} onDelete={() => supprimerProjet(projet.id)}>
+                                  <div className="font-semibold text-sm text-slate-800">{projet.nom}</div>
+                                  <div className="text-xs text-slate-500 mt-0.5">{projet.description}</div>
+                                </DraggableItem>
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                    <button onClick={() => setProjetEnEdition({})} className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border-2 border-dashed border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-600 transition-all w-full justify-center">
+                      <Plus size={13} /> Ajouter un projet
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {erreurImport && (
+                <div className="mt-3 text-xs text-red-500 flex items-center gap-1 p-2 bg-red-50 rounded-xl">
+                  <AlertCircle size={13} /> {erreurImport}
+                </div>
+              )}
+
+              </div> {/* fin contenu onglets */}
+            </div> {/* fin panneau gauche */}
+
+
+
+
+
 
             {/* Côté droit - Prévisualisation avec tous les templates */}
             <motion.div
-              className="w-1/2 bg-white rounded-lg shadow-sm p-6 max-h-[calc(100vh-120px)] overflow-y-auto"
+              className={`w-full lg:w-1/2 bg-white rounded-lg shadow-sm p-6 max-h-screen lg:max-h-[calc(100vh-120px)] overflow-y-auto
+                ${mobileView === 'edit' ? 'hidden lg:block' : 'block'}`}
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ delay: 0.2 }}
